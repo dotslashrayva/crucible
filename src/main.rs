@@ -8,17 +8,19 @@ mod asm;
 mod ast;
 mod codegen;
 mod emit;
-mod intrep;
 mod ir;
+mod irgen;
 mod lexer;
 mod parser;
+mod resolve;
 mod token;
 
 use codegen::generate;
 use emit::emit;
-use intrep::flatten;
+use irgen::flatten;
 use lexer::lex;
 use parser::parse;
+use resolve::resolve;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -31,6 +33,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut stop_after_lex: bool = false;
     let mut stop_after_parse: bool = false;
+    let mut stop_after_validate: bool = false;
     let mut stop_after_ir: bool = false;
     let mut stop_after_codegen: bool = false;
     let mut stop_after_emit: bool = false;
@@ -41,6 +44,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         match arg.as_str() {
             "--lex" => stop_after_lex = true,
             "--parse" => stop_after_parse = true,
+            "--validate" => stop_after_validate = true,
             "--tacky" | "--ir" => stop_after_ir = true,
             "--codegen" => stop_after_codegen = true,
             "-S" | "--emit" => stop_after_emit = true,
@@ -86,6 +90,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     if stop_after_parse {
         dbg!(ast);
         println!("Parser OK!");
+        return Ok(());
+    }
+
+    let ast = match resolve(ast) {
+        Ok(ast) => ast,
+        Err(e) => return Err(format!("Semantic error: {}", e).into()),
+    };
+
+    if stop_after_validate {
+        dbg!(ast);
+        println!("Validation OK!");
         return Ok(());
     }
 

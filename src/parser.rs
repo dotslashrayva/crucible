@@ -1,8 +1,8 @@
 use crate::ast::*;
 use crate::token::Token;
 
-// The Parser keeps track of where we are in the list of tokens
-// which token we're looking at right now
+// The Parser struct keeps track of where we are in the list of tokens
+// and which token we're looking at right now
 struct Parser {
     tokens: Vec<Token>,
     current: usize,
@@ -24,12 +24,14 @@ impl Parser {
         return self.tokens.get(self.current);
     }
 
+    // Consumes the Token
     fn advance(&mut self) -> Option<&Token> {
         let token = self.tokens.get(self.current);
         self.current += 1;
         return token;
     }
 
+    // Match and consumes the Token
     fn expect(&mut self, expected: Token, error_msg: &str) -> Result<(), String> {
         match self.advance() {
             Some(token) if token == &expected => Ok(()),
@@ -49,6 +51,7 @@ impl Parser {
             Token::Pipe => Some(15),
             Token::AmpAmp => Some(10),
             Token::PipePipe => Some(5),
+            Token::Equal => Some(1),
             _ => None,
         }
     }
@@ -74,9 +77,11 @@ impl Parser {
                 | Token::LessEqual
                 | Token::Greater
                 | Token::GreaterEqual
+                | Token::Equal
         )
     }
 
+    // Binary Token to Binary Operator
     fn parse_binop(&mut self) -> Result<BinaryOperator, String> {
         match self.advance() {
             Some(Token::Plus) => Ok(BinaryOperator::Add),
@@ -110,6 +115,7 @@ impl Parser {
     }
 
     fn parse_function(&mut self) -> Result<Function, String> {
+        // Expect int keyword
         self.expect(Token::Int, "Expected 'int' keyword")?;
 
         // Expect identifier (function name)
@@ -118,22 +124,87 @@ impl Parser {
             _ => return Err("Expected function name".to_string()),
         };
 
+        // Expect main function signature
         self.expect(Token::OpenParen, "Expected '('")?;
         self.expect(Token::Void, "Expected 'void'")?;
         self.expect(Token::CloseParen, "Expected ')'")?;
-
         self.expect(Token::OpenBrace, "Expected '{'")?;
-        let body = self.parse_statement()?;
+
+        // Parse block items until we hit '}'
+        let mut body = Vec::new();
+
+        // Process until Close Brace
+        while self.peek() != Some(&Token::CloseBrace) {
+            let block_item = self.parse_block_item()?;
+            body.push(block_item);
+        }
+
+        // Expect Close Brace
         self.expect(Token::CloseBrace, "Expected '}'")?;
 
         return Ok(Function { name, body });
     }
 
-    fn parse_statement(&mut self) -> Result<Statement, String> {
-        self.expect(Token::Return, "Expected 'return' keyword")?;
-        let exp = self.parse_exp(0)?;
+    fn parse_block_item(&mut self) -> Result<Block, String> {
+        match self.peek() {
+            // Declaration starts with 'int'
+            Some(Token::Int) => {
+                let decl = self.parse_declaration()?;
+                Ok(Block::Declare(decl))
+            }
+            // Everything else is a statement
+            _ => {
+                let stmt = self.parse_statement()?;
+                Ok(Block::State(stmt))
+            }
+        }
+    }
+
+    fn parse_declaration(&mut self) -> Result<Declaration, String> {
+        // Expect variable type
+        self.expect(Token::Int, "Expected 'int' keyword")?;
+
+        // Expect variable name
+        let name = match self.advance() {
+            Some(Token::Identifier(id)) => id.clone(),
+            _ => return Err("Expected variable name".to_string()),
+        };
+
+        // Optional initializer: "=" <exp>
+        let init = if self.peek() == Some(&Token::Equal) {
+            self.advance(); // consume '='
+            Some(self.parse_exp(0)?)
+        } else {
+            None
+        };
+
+        // Expect semicolon
         self.expect(Token::Semicolon, "Expected ';'")?;
-        return Ok(Statement::Return(exp));
+
+        return Ok(Declaration { name, init });
+    }
+
+    fn parse_statement(&mut self) -> Result<Statement, String> {
+        match self.peek() {
+            // "return" <exp> ";"
+            Some(Token::Return) => {
+                self.advance();
+                let exp = self.parse_exp(0)?;
+                self.expect(Token::Semicolon, "Expected ';'")?;
+                Ok(Statement::Return(exp))
+            }
+            // Null statement: ";"
+            Some(Token::Semicolon) => {
+                self.advance();
+                Ok(Statement::Null)
+            }
+            // Expression statement: <exp> ";"
+            _ => {
+                let exp = self.parse_exp(0)?;
+                self.expect(Token::Semicolon, "Expected ';'")?;
+                Ok(Statement::Expression(exp))
+            }
+        }
     }
 
     fn parse_exp(&mut self, min_prec: u8) -> Result<Expr, String> {
@@ -151,14 +222,17 @@ impl Parser {
                 break;
             }
 
-            // Parse the operator
-            let operator = self.parse_binop()?;
-
-            // Parse the right side with higher precedence
-            let right = self.parse_exp(token_prec + 1)?;
-
-            // Build the binary expression
-            left = Expr::Binary(operator, Box::new(left), Box::new(right));
+            // Handle '=' as right-associative assignment
+            // else as Left-associative binary operators
+            if token == &Token::Equal {
+                self.advance();
+                let right = self.parse_exp(token_prec)?;
+                left = Expr::Assignment(Box::new(left), Box::new(right));
+            } else {
+                let operator = self.parse_binop()?;
+                let right = self.parse_exp(token_prec + 1)?;
+                left = Expr::Binary(operator, Box::new(left), Box::new(right));
+            }
         }
 
         return Ok(left);
@@ -177,6 +251,13 @@ impl Parser {
                 };
 
                 return Ok(Expr::Constant(num));
+            }
+
+            // Variable
+            Some(Token::Identifier(name)) => {
+                let name = name.clone();
+                self.advance();
+                return Ok(Expr::Variable(name));
             }
 
             // Unary

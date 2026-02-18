@@ -1,57 +1,45 @@
 # Crucible
 
-A C compiler written in Rust targeting x86-64 assembly (Intel syntax) on macOS (Darwin).
+A C compiler, handwritten in Rust.
 
-> ⚠️ **Note:** This project is currently under construction and supports a limited subset of C.
+Crucible compiles a subset of C down to x86-64 assembly (Intel syntax), performing lexical analysis, parsing, semantic analysis, IR generation, and code generation. No LLVM, no parser generators, no shortcuts.
 
-## Overview
-1. **Lexical Analysis** - Tokenizing source code
-2. **Parsing** - Building an Abstract Syntax Tree (AST)
-3. **IR Generation** - Converting to Three-Address Code intermediate representation
-4. **Code Generation** - Translating IR to x86-64 assembly
-5. **Code Emission** - Outputting Intel syntax assembly
-6. **Assembly & Linking** - Using Clang to produce executables
+```
+source.c -> Lexer -> Parser -> Resolver -> IR Gen -> CodeGen -> Emitter -> x86-64 assembly
+```
 
-## Supported Language Features
-
-- Integer constants and arithmetic: `+`, `-`, `*`, `/`, `%`
-- Bitwise operators: `&`, `|`, `^`, `<<`, `>>`
-- Comparison operators: `==`, `!=`, `<`, `<=`, `>`, `>=`
-- Logical operators: `&&`, `||`, `!` (with short-circuit evaluation)
-- Unary operators: `-` (negate), `~` (complement), `!` (logical not)
-- Parenthesized expressions
-- Single function with `return` statement
-
-
-### Module Breakdown
-
-- **`token.rs`** - Token definitions for the lexer
-- **`lexer.rs`** - Tokenizes source code using regex patterns
-- **`parser.rs`** - Recursive descent parser with precedence climbing for expressions
-- **`ast.rs`** - Abstract Syntax Tree data structures
-- **`intrep.rs`** - Flattens AST into three-address code IR
-- **`ir.rs`** - Intermediate representation definitions (three-address code)
-- **`codegen.rs`** - Generates assembly from IR with register allocation
-- **`asm.rs`** - Assembly-level data structures
-- **`emit.rs`** - Outputs Intel syntax x86-64 assembly
-- **`main.rs`** - Compiler driver and CLI
-
-## Prerequisites
-
-- **Rust** (latest stable version)
-- **clang** (for preprocessing, assembling, and linking)
-- **macOS** (currently targets x86-64 Darwin, runs under Rosetta 2)
-
-## Installation
+## Quick Start
 
 ```bash
-# Clone the repository
 git clone https://github.com/dotslashrayva/crucible
 cd crucible
-
-# Build the compiler
 cargo build --release
 ```
+
+## What It Compiles
+
+```c
+int main(void) {
+    int x = 10;
+    int y = 3;
+    int result = ((x + y) * 2 - x % y) << 1;
+    return result != 0 && !(x == y);
+}
+```
+
+```bash
+$ crucible example.c
+$ ./example
+$ echo $?  # 1
+```
+
+Crucible handles:
+- Arithmetic: `+` `-` `*` `/` `%`
+- Bitwise: `&` `|` `^` `~` `<<` `>>`
+- Logical: `&&` `||` `!` with short-circuit evaluation
+- Comparison: `==` `!=` `<` `<=` `>` `>=`
+- Local variables with declarations, assignments, and chained assignment (`a = b = 5`)
+- Operator precedence and associativity (17 levels, parsed via precedence climbing)
 
 ## Usage
 
@@ -59,80 +47,99 @@ cargo build --release
 # Full compilation
 crucible program.c
 
-# Stop after specific stages (useful for debugging)
-crucible --lex program.c        # Tokenize only
-crucible --parse program.c      # Parse and dump AST
-crucible --ir program.c         # Generate and dump IR
-crucible --codegen program.c    # Generate and dump assembly IR
-crucible -S program.c           # Emit assembly text
+# Stop after specific stages
+crucible --lex program.c         # tokens
+crucible --parse program.c       # AST
+crucible --validate program.c    # AST after semantic analysis
+crucible --ir program.c          # three-address code IR
+crucible --codegen program.c     # x86-64 instruction selection
+crucible -S program.c            # final assembly output
 ```
 
-## Example
+## Compilation Pipeline
 
-Given `example.c`:
+Each stage is a self-contained transformation with well-defined input/output boundaries. No stage knows about the internals of another. Data flows forward through the pipeline as distinct intermediate representations.
 
-```c
-int main(void) {
-    return (5 + 3) * 2 - 10 / 2;
-}
+| Stage | Module | Input / Output |
+|-------|--------|---------------|
+| Lexing | `lexer.rs` | Source -> `Vec<Token>` |
+| Parsing | `parser.rs` | Tokens -> AST |
+| Semantic Analysis | `resolve.rs` | AST -> AST (validated, variables renamed) |
+| IR Generation | `irgen.rs` | AST -> Three-Address Code |
+| Code Generation | `codegen.rs` | TAC -> x86-64 instructions |
+| Emission | `emit.rs` | Instructions -> Assembly text |
+
+## Architecture
+
+```
+src/
+├── token.rs      # Token definitions
+├── lexer.rs      # Regex-based tokenizer
+├── ast.rs        # AST node types
+├── parser.rs     # Recursive descent + precedence climbing
+├── resolve.rs    # Variable resolution (semantic analysis)
+├── ir.rs         # Three-address code definitions
+├── irgen.rs      # AST -> TAC lowering
+├── asm.rs        # x86-64 instruction types
+├── codegen.rs    # Instruction selection + register fixups
+├── emit.rs       # Assembly text emission (Intel syntax)
+└── main.rs       # Driver
 ```
 
-```bash
-$ crucible example.c
-$ ./example
-$ echo $? # Should print: 11
-```
+## Design
 
-## Implementation Details
+### Parsing Strategy
 
-### Short-Circuit Evaluation
+The parser uses recursive descent for statements and declarations, and switches to **precedence climbing** for expressions. A single `parse_exp(min_prec)` function handles all 17 precedence levels and both associativity directions through a tight loop. No grammar duplication, no per-level functions, and trivially extensible when new operators are added. Assignment is treated as the lowest-precedence right-associative binary operator, which allows `a = b = 5` to parse correctly without special-casing.
 
-Crucible implements proper short-circuit evaluation for logical operators:
+### Semantic Analysis
 
-- **`&&` (Logical AND)**: If the left operand is false, the right operand is not evaluated
-- **`||` (Logical OR)**: If the left operand is true, the right operand is not evaluated
+Variable resolution is implemented as a **dedicated AST-to-AST transformation pass**, decoupled from both the parser and the IR generator. This separation is a deliberate design choice: the parser stays grammar-focused with no symbol table concerns, and downstream passes receive a pre-validated AST where every variable reference is guaranteed to be valid and globally unique.
 
-This is achieved through control flow in the IR generation phase using conditional jumps.
+The resolver enforces three invariants:
+1. **No duplicate declarations**: a variable name may only be declared once within a scope
+2. **No undeclared references**: every variable use must have a corresponding prior declaration
+3. **Valid lvalues**: the left side of an assignment must be an addressable location
 
-### Register Allocation
+Every variable is renamed with a unique identifier during this pass (`x` -> `x.0`, `y` -> `y.1`), which eliminates the possibility of name collisions between user-defined variables and compiler-generated temporaries in all subsequent stages.
 
-The code generator uses a simple register allocation scheme:
+### IR Lowering
 
-- **`eax`** - Return values and accumulator
-- **`edx`** - Division remainder
-- **`r10d`** - Temporary for fixing invalid instruction forms
-- **`r11d`** - Temporary for multiply operations
+The AST is flattened into **three-address code**, a linear sequence of instructions where each operation has at most one operator and up to two source operands, writing to a single destination. This representation is chosen because it maps naturally to x86-64 instruction semantics while remaining target-independent.
 
-### Stack Management
+Compiler-generated temporaries (`tmp.0`, `tmp.1`, ...) are introduced to decompose complex expressions into discrete steps. The namespace separation between resolver-generated names (`x.0`) and IR temporaries (`tmp.0`) is maintained by convention, ensuring no collisions without requiring a global symbol table at this stage.
 
-Variables are allocated on the stack with 4-byte slots. Pseudo-registers from the IR are mapped to stack offsets during code generation.
+Short-circuit evaluation for `&&` and `||` is lowered here through **control flow linearization**. Logical operators become sequences of conditional jumps, labels, and copy instructions rather than value-producing binary operations. This correctly models C's evaluation semantics where the right operand may never execute.
 
-### Instruction Fixing
+### Code Generation
 
-The code generator includes several "fix" passes to handle x86-64 constraints:
+Code generation is structured as a **multi-pass pipeline** rather than a single monolithic translation. Each pass has a single responsibility, making the system easier to debug, test, and extend.
 
-- **`fix_moves`** - Breaks invalid memory-to-memory moves
-- **`fix_binary`** - Fixes binary operations with two memory operands
-- **`fix_multiply`** - Handles multiply with stack operands
-- **`fix_div_imm`** - Moves immediate values to registers for division
+**Pass 1: Instruction Selection.** IR instructions are translated to x86-64 assembly using pseudo-registers (virtual operands that haven't been assigned physical locations yet). This pass focuses purely on choosing the right x86-64 instruction forms without worrying about operand constraints.
 
-## Limitations
+**Pass 2: Stack Allocation.** Pseudo-registers are lowered to concrete stack slots. Each unique variable gets a 4-byte slot at a fixed offset from `rbp`. The total frame size is **rounded up to 16 bytes** to satisfy the System V AMD64 ABI alignment requirement. This is critical on macOS where the runtime and Rosetta 2 rely on SSE instructions that fault on misaligned stacks.
 
-### Current Limitations
+**Pass 3: Instruction Fixups.** x86-64 has encoding constraints that the instruction selector intentionally ignores for simplicity. Dedicated fix-up passes rewrite illegal instruction forms after the fact:
+- **Memory-to-memory moves**: split into move-to-register, move-from-register
+- **Binary ops with two stack operands**: source operand routed through a scratch register
+- **Multiply targeting a stack location**: detoured through `r11d`
+- **Immediate operand in `idiv`**: moved to `r10d` first
+- **Immediate first operand in `cmp`**: moved to `r11d` first
 
-- Only supports `int main(void)` functions
-- No variable declarations or assignments
-- No control flow statements (if, while, for)
-- No function calls (besides implicit return)
-- No pointers or arrays
-- Limited to integer types
-- macOS/Darwin target only
+This separation means the instruction selector never needs to reason about register constraints, and new fixups can be added independently as the compiler grows.
 
-### Known Issues
+## Roadmap
 
-- Error messages could be more descriptive
-- No optimization passes
-- Limited type system
+- [ ] Control flow: `if`/`else`, ternary, `while`, `for`, `do-while`
+- [ ] Compound assignment: `+=`, `-=`, `*=`, etc.
+- [ ] Increment/decrement: `++`, `--`
+- [ ] Functions: declarations, calls, parameters
+- [ ] Pointers and arrays
+- [ ] Multiple translation units
+- [ ] ARM64 backend (native Apple Silicon)
 
-## **Project Status:** 🚧 Under Active Development
+## Requirements
 
+- Rust (stable)
+- Clang (preprocessing, assembling, linking)
+- macOS (targets x86-64 Darwin, runs via Rosetta 2 on Apple Silicon)

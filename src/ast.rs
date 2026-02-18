@@ -9,19 +9,35 @@ pub struct Program {
 #[derive(Debug)]
 pub struct Function {
     pub name: String,
-    pub body: Statement,
+    pub body: Vec<Block>,
+}
+
+#[derive(Debug)]
+pub struct Declaration {
+    pub name: String,
+    pub init: Option<Expr>,
 }
 
 #[derive(Debug)]
 pub enum Statement {
     Return(Expr),
+    Expression(Expr),
+    Null,
+}
+
+#[derive(Debug)]
+pub enum Block {
+    State(Statement),
+    Declare(Declaration),
 }
 
 #[derive(Debug)]
 pub enum Expr {
     Constant(i32),
+    Variable(String),
     Unary(UnaryOperator, Box<Expr>),
     Binary(BinaryOperator, Box<Expr>, Box<Expr>),
+    Assignment(Box<Expr>, Box<Expr>),
 }
 
 #[derive(Debug)]

@@ -54,7 +54,9 @@ fn generate_function(ir_func: ir::Function) -> asm::Function {
     fix_multiply(&mut instructions);
     fix_compares(&mut instructions);
 
-    instructions.insert(0, asm::Instruction::AllocateStack(next_stack - 4));
+    let stack_size = next_stack - 4;
+    let aligned = (stack_size + 15) & !15;
+    instructions.insert(0, asm::Instruction::AllocateStack(aligned));
 
     return asm::Function { name, instructions };
 }

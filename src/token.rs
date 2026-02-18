@@ -23,6 +23,7 @@ pub enum Token {
     Star,
     Slash,
     Percent,
+    Equal,
 
     Pipe,
     Caret,

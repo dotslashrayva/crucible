@@ -137,6 +137,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
             '!' => tokens.push(Token::Exclaim),
             '<' => tokens.push(Token::Less),
             '>' => tokens.push(Token::Greater),
+            '=' => tokens.push(Token::Equal),
             _ => return Err(format!("Unexpected character: '{}'", ch)),
         }
         input = &input[1..];
