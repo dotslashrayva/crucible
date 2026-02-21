@@ -70,6 +70,7 @@ pub enum Operand {
 #[derive(Debug, Clone)]
 pub enum Reg {
     AX,
+    CX,
     DX,
     R10,
     R11,

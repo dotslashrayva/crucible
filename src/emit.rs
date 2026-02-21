@@ -68,12 +68,20 @@ fn emit_instruction(instruction: &asm::Instruction, output: &mut String) {
             asm::BinaryOperator::Xor => {
                 writeln!(output, "xor {}, {}", emit_operand(dst), emit_operand(src)).unwrap()
             }
-            asm::BinaryOperator::Sal => {
-                writeln!(output, "sal {}, {}", emit_operand(dst), emit_operand(src)).unwrap()
-            }
-            asm::BinaryOperator::Sar => {
-                writeln!(output, "sar {}, {}", emit_operand(dst), emit_operand(src)).unwrap()
-            }
+            asm::BinaryOperator::Sal => writeln!(
+                output,
+                "sal {}, {}",
+                emit_operand(dst),
+                emit_shift_count(src)
+            )
+            .unwrap(),
+            asm::BinaryOperator::Sar => writeln!(
+                output,
+                "sar {}, {}",
+                emit_operand(dst),
+                emit_shift_count(src)
+            )
+            .unwrap(),
         },
 
         asm::Instruction::Division(divisor) => {
@@ -115,6 +123,7 @@ fn emit_operand(operand: &asm::Operand) -> String {
 
         asm::Operand::Register(reg) => match reg {
             asm::Reg::AX => "eax",
+            asm::Reg::CX => "ecx",
             asm::Reg::DX => "edx",
             asm::Reg::R10 => "r10d",
             asm::Reg::R11 => "r11d",
@@ -131,6 +140,7 @@ fn emit_one_byte_operand(operand: &asm::Operand) -> String {
         asm::Operand::Immediate(value) => value.to_string(),
         asm::Operand::Register(reg) => match reg {
             asm::Reg::AX => "al",
+            asm::Reg::CX => "cl",
             asm::Reg::DX => "dl",
             asm::Reg::R10 => "r10b",
             asm::Reg::R11 => "r11b",
@@ -138,6 +148,14 @@ fn emit_one_byte_operand(operand: &asm::Operand) -> String {
         .to_string(),
         asm::Operand::Stack(value) => format!("byte ptr [rbp - {}]", value),
         asm::Operand::Pseudo(_value) => unreachable!(),
+    }
+}
+
+fn emit_shift_count(operand: &asm::Operand) -> String {
+    match operand {
+        asm::Operand::Immediate(value) => value.to_string(),
+        asm::Operand::Register(asm::Reg::CX) => "cl".to_string(),
+        _ => unreachable!("shift count must be immediate or cl"),
     }
 }
 

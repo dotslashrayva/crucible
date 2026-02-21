@@ -17,6 +17,9 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
     let increment = Regex::new(r"^\+\+").unwrap();
     let decrement = Regex::new(r"^--").unwrap();
 
+    let left_shift_equal = Regex::new(r"^<<=").unwrap();
+    let right_shift_equal = Regex::new(r"^>>=").unwrap();
+
     let left_shift = Regex::new(r"^<<").unwrap();
     let right_shift = Regex::new(r"^>>").unwrap();
 
@@ -28,6 +31,16 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
 
     let less_equal = Regex::new(r"^<=").unwrap();
     let greater_equal = Regex::new(r"^>=").unwrap();
+
+    let plus_equal = Regex::new(r"^\+=").unwrap();
+    let minus_equal = Regex::new(r"^-=").unwrap();
+    let star_equal = Regex::new(r"^\*=").unwrap();
+    let slash_equal = Regex::new(r"^/=").unwrap();
+    let percent_equal = Regex::new(r"^%=").unwrap();
+
+    let amp_equal = Regex::new(r"^&=").unwrap();
+    let pipe_equal = Regex::new(r"^\|=").unwrap();
+    let caret_equal = Regex::new(r"^\^=").unwrap();
 
     while !input.is_empty() {
         // Skip whitespace
@@ -66,6 +79,16 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
         }
 
         // Operators
+        if let Some(m) = left_shift_equal.find(input) {
+            tokens.push(Token::LessLessEqual);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = right_shift_equal.find(input) {
+            tokens.push(Token::GreaterGreaterEqual);
+            input = &input[m.end()..];
+            continue;
+        }
         if let Some(m) = left_shift.find(input) {
             tokens.push(Token::LessLess);
             input = &input[m.end()..];
@@ -103,6 +126,46 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
         }
         if let Some(m) = greater_equal.find(input) {
             tokens.push(Token::GreaterEqual);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = plus_equal.find(input) {
+            tokens.push(Token::PlusEqual);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = minus_equal.find(input) {
+            tokens.push(Token::MinusEqual);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = star_equal.find(input) {
+            tokens.push(Token::StarEqual);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = slash_equal.find(input) {
+            tokens.push(Token::SlashEqual);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = percent_equal.find(input) {
+            tokens.push(Token::PercentEqual);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = amp_equal.find(input) {
+            tokens.push(Token::AmpEqual);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = pipe_equal.find(input) {
+            tokens.push(Token::PipeEqual);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = caret_equal.find(input) {
+            tokens.push(Token::CaretEqual);
             input = &input[m.end()..];
             continue;
         }

@@ -23,6 +23,8 @@ int main(void) {
     int x = 10;
     int y = 3;
     int result = ((x + y) * 2 - x % y) << 1;
+    result += x;
+    result >>= 1;
     return result != 0 && !(x == y);
 }
 ```
@@ -38,6 +40,7 @@ Crucible handles:
 - Bitwise: `&` `|` `^` `~` `<<` `>>`
 - Logical: `&&` `||` `!` with short-circuit evaluation
 - Comparison: `==` `!=` `<` `<=` `>` `>=`
+- Compound assignment: `+=` `-=` `*=` `/=` `%=` `&=` `|=` `^=` `<<=` `>>=`
 - Local variables with declarations, assignments, and chained assignment (`a = b = 5`)
 - Operator precedence and associativity (17 levels, parsed via precedence climbing)
 
@@ -90,7 +93,7 @@ src/
 
 ### Parsing Strategy
 
-The parser uses recursive descent for statements and declarations, and switches to **precedence climbing** for expressions. A single `parse_exp(min_prec)` function handles all 17 precedence levels and both associativity directions through a tight loop. No grammar duplication, no per-level functions, and trivially extensible when new operators are added. Assignment is treated as the lowest-precedence right-associative binary operator, which allows `a = b = 5` to parse correctly without special-casing.
+The parser uses recursive descent for statements and declarations, and switches to **precedence climbing** for expressions. A single `parse_exp(min_prec)` function handles all 17 precedence levels and both associativity directions through a tight loop. No grammar duplication, no per-level functions, and trivially extensible when new operators are added. Assignment is treated as the lowest-precedence right-associative binary operator, which allows `a = b = 5` to parse correctly without special-casing. Compound assignments (`+=`, `-=`, etc.) are **desugared in the parser** into plain assignments (`a += b` becomes `a = a + b`), keeping the AST, IR, and codegen unchanged.
 
 ### Semantic Analysis
 
@@ -125,13 +128,14 @@ Code generation is structured as a **multi-pass pipeline** rather than a single 
 - **Multiply targeting a stack location**: detoured through `r11d`
 - **Immediate operand in `idiv`**: moved to `r10d` first
 - **Immediate first operand in `cmp`**: moved to `r11d` first
+- **Shift with non-immediate count**: count moved to `ecx` so the instruction can use `cl`, the only register x86-64 permits as a shift count
 
 This separation means the instruction selector never needs to reason about register constraints, and new fixups can be added independently as the compiler grows.
 
 ## Roadmap
 
 - [ ] Control flow: `if`/`else`, ternary, `while`, `for`, `do-while`
-- [ ] Compound assignment: `+=`, `-=`, `*=`, etc.
+- [x] Compound assignment: `+=`, `-=`, `*=`, etc.
 - [ ] Increment/decrement: `++`, `--`
 - [ ] Functions: declarations, calls, parameters
 - [ ] Pointers and arrays

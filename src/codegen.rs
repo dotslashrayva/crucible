@@ -51,6 +51,7 @@ fn generate_function(ir_func: ir::Function) -> asm::Function {
     fix_moves(&mut instructions);
     fix_div_imm(&mut instructions);
     fix_binary(&mut instructions);
+    fix_shifts(&mut instructions);
     fix_multiply(&mut instructions);
     fix_compares(&mut instructions);
 
@@ -170,6 +171,41 @@ fn fix_binary(instructions: &mut Vec<asm::Instruction>) {
             instructions.insert(
                 i + 1,
                 asm::Instruction::Binary(bin_op, dst, asm::Operand::Register(asm::Reg::R10)),
+            );
+
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+}
+
+fn fix_shifts(instructions: &mut Vec<asm::Instruction>) {
+    let mut i = 0;
+    while i < instructions.len() {
+        let needs_fix = if let asm::Instruction::Binary(op, _, src) = &instructions[i] {
+            matches!(op, asm::BinaryOperator::Sal | asm::BinaryOperator::Sar)
+                && !matches!(src, asm::Operand::Immediate(_))
+        } else {
+            false
+        };
+
+        if needs_fix {
+            let (bin_op, dst, src) = match &instructions[i] {
+                asm::Instruction::Binary(op, dst, src) => (op.clone(), dst.clone(), src.clone()),
+                _ => unreachable!(),
+            };
+
+            // mov ecx, <count>
+            instructions[i] = asm::Instruction::Move {
+                dst: asm::Operand::Register(asm::Reg::CX),
+                src,
+            };
+
+            // sal/sar dst, cl
+            instructions.insert(
+                i + 1,
+                asm::Instruction::Binary(bin_op, dst, asm::Operand::Register(asm::Reg::CX)),
             );
 
             i += 2;

@@ -43,5 +43,17 @@ pub enum Token {
     EqualEqual,
     ExclaimEqual,
 
+    PlusEqual,
+    MinusEqual,
+    StarEqual,
+    SlashEqual,
+    PercentEqual,
+
+    AmpEqual,
+    PipeEqual,
+    CaretEqual,
+    LessLessEqual,
+    GreaterGreaterEqual,
+
     EOF,
 }

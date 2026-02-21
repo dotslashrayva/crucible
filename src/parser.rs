@@ -51,7 +51,17 @@ impl Parser {
             Token::Pipe => Some(15),
             Token::AmpAmp => Some(10),
             Token::PipePipe => Some(5),
-            Token::Equal => Some(1),
+            Token::Equal
+            | Token::PlusEqual
+            | Token::MinusEqual
+            | Token::StarEqual
+            | Token::SlashEqual
+            | Token::PercentEqual
+            | Token::AmpEqual
+            | Token::PipeEqual
+            | Token::CaretEqual
+            | Token::LessLessEqual
+            | Token::GreaterGreaterEqual => Some(1),
             _ => None,
         }
     }
@@ -78,6 +88,16 @@ impl Parser {
                 | Token::Greater
                 | Token::GreaterEqual
                 | Token::Equal
+                | Token::PlusEqual
+                | Token::MinusEqual
+                | Token::StarEqual
+                | Token::SlashEqual
+                | Token::PercentEqual
+                | Token::AmpEqual
+                | Token::PipeEqual
+                | Token::CaretEqual
+                | Token::LessLessEqual
+                | Token::GreaterGreaterEqual
         )
     }
 
@@ -103,6 +123,22 @@ impl Parser {
             Some(Token::Greater) => Ok(BinaryOperator::GreaterThan),
             Some(Token::GreaterEqual) => Ok(BinaryOperator::GreaterOrEqual),
             _ => Err("Expected binary operator".to_string()),
+        }
+    }
+
+    fn compound_to_binop(token: &Token) -> Option<BinaryOperator> {
+        match token {
+            Token::PlusEqual => Some(BinaryOperator::Add),
+            Token::MinusEqual => Some(BinaryOperator::Subtract),
+            Token::StarEqual => Some(BinaryOperator::Multiply),
+            Token::SlashEqual => Some(BinaryOperator::Divide),
+            Token::PercentEqual => Some(BinaryOperator::Modulo),
+            Token::AmpEqual => Some(BinaryOperator::BitwiseAnd),
+            Token::PipeEqual => Some(BinaryOperator::BitwiseOr),
+            Token::CaretEqual => Some(BinaryOperator::BitwiseXor),
+            Token::LessLessEqual => Some(BinaryOperator::LeftShift),
+            Token::GreaterGreaterEqual => Some(BinaryOperator::RightShift),
+            _ => None,
         }
     }
 }
@@ -223,11 +259,20 @@ impl Parser {
             }
 
             // Handle '=' as right-associative assignment
+            // Handle compound assignments (+=, -=, etc.) by desugaring
+            // Desugar: a op= b -> a = (a op b)
             // else as Left-associative binary operators
             if token == &Token::Equal {
                 self.advance();
                 let right = self.parse_exp(token_prec)?;
                 left = Expr::Assignment(Box::new(left), Box::new(right));
+            } else if let Some(binop) = Self::compound_to_binop(token) {
+                self.advance();
+                let right = self.parse_exp(token_prec)?;
+                left = Expr::Assignment(
+                    Box::new(left.clone()),
+                    Box::new(Expr::Binary(binop, Box::new(left), Box::new(right))),
+                );
             } else {
                 let operator = self.parse_binop()?;
                 let right = self.parse_exp(token_prec + 1)?;

@@ -31,7 +31,7 @@ pub enum Block {
     Declare(Declaration),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     Constant(i32),
     Variable(String),
@@ -40,14 +40,14 @@ pub enum Expr {
     Assignment(Box<Expr>, Box<Expr>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum UnaryOperator {
     Negate,
     LogicalNot,
     Complement,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BinaryOperator {
     Add,
     Subtract,
