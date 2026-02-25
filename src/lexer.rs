@@ -10,6 +10,8 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
     let int_kw = Regex::new(r"^int\b").unwrap();
     let void_kw = Regex::new(r"^void\b").unwrap();
     let return_kw = Regex::new(r"^return\b").unwrap();
+    let if_kw = Regex::new(r"^if\b").unwrap();
+    let else_kw = Regex::new(r"^else\b").unwrap();
 
     let ident = Regex::new(r"^[a-zA-Z_]\w*\b").unwrap();
     let number = Regex::new(r"^[0-9]+\b").unwrap();
@@ -62,6 +64,16 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
         }
         if let Some(m) = return_kw.find(input) {
             tokens.push(Token::Return);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = if_kw.find(input) {
+            tokens.push(Token::If);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = else_kw.find(input) {
+            tokens.push(Token::Else);
             input = &input[m.end()..];
             continue;
         }
@@ -201,6 +213,8 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
             '<' => tokens.push(Token::Less),
             '>' => tokens.push(Token::Greater),
             '=' => tokens.push(Token::Equal),
+            ':' => tokens.push(Token::Colon),
+            '?' => tokens.push(Token::Question),
             _ => return Err(format!("Unexpected character: '{}'", ch)),
         }
         input = &input[1..];

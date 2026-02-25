@@ -25,7 +25,13 @@ int main(void) {
     int result = ((x + y) * 2 - x % y) << 1;
     result += x;
     result >>= 1;
-    return result != 0 && !(x == y);
+
+    if (result > 20)
+        result = result - 5;
+    else
+        result = result + 5;
+
+    return result > 0 ? 1 : 0;
 }
 ```
 
@@ -41,6 +47,7 @@ Crucible handles:
 - Logical: `&&` `||` `!` with short-circuit evaluation
 - Comparison: `==` `!=` `<` `<=` `>` `>=`
 - Compound assignment: `+=` `-=` `*=` `/=` `%=` `&=` `|=` `^=` `<<=` `>>=`
+- Control flow: `if`/`else`, ternary (`? :`)
 - Local variables with declarations, assignments, and chained assignment (`a = b = 5`)
 - Operator precedence and associativity (17 levels, parsed via precedence climbing)
 
@@ -93,7 +100,7 @@ src/
 
 ### Parsing Strategy
 
-The parser uses recursive descent for statements and declarations, and switches to **precedence climbing** for expressions. A single `parse_exp(min_prec)` function handles all 17 precedence levels and both associativity directions through a tight loop. No grammar duplication, no per-level functions, and trivially extensible when new operators are added. Assignment is treated as the lowest-precedence right-associative binary operator, which allows `a = b = 5` to parse correctly without special-casing. Compound assignments (`+=`, `-=`, etc.) are **desugared in the parser** into plain assignments (`a += b` becomes `a = a + b`), keeping the AST, IR, and codegen unchanged.
+The parser uses recursive descent for statements and declarations, and switches to **precedence climbing** for expressions. A single `parse_exp(min_prec)` function handles all 17 precedence levels and both associativity directions through a tight loop. No grammar duplication, no per-level functions, and trivially extensible when new operators are added. Assignment and conditional expressions (`? :`) are treated as right-associative special cases within the precedence climber — assignment produces an `Assignment` node, and the ternary produces a `Conditional` node, while all other operators flow through the standard binary path. Compound assignments (`+=`, `-=`, etc.) are **desugared in the parser** into plain assignments (`a += b` becomes `a = a + b`), keeping the AST, IR, and codegen unchanged.
 
 ### Semantic Analysis
 
@@ -112,7 +119,7 @@ The AST is flattened into **three-address code**, a linear sequence of instructi
 
 Compiler-generated temporaries (`tmp.0`, `tmp.1`, ...) are introduced to decompose complex expressions into discrete steps. The namespace separation between resolver-generated names (`x.0`) and IR temporaries (`tmp.0`) is maintained by convention, ensuring no collisions without requiring a global symbol table at this stage.
 
-Short-circuit evaluation for `&&` and `||` is lowered here through **control flow linearization**. Logical operators become sequences of conditional jumps, labels, and copy instructions rather than value-producing binary operations. This correctly models C's evaluation semantics where the right operand may never execute.
+Short-circuit evaluation for `&&` and `||` is lowered here through **control flow linearization**. Logical operators become sequences of conditional jumps, labels, and copy instructions rather than value-producing binary operations. This correctly models C's evaluation semantics where the right operand may never execute. The same mechanism handles `if`/`else` statements (conditional jumps around statement blocks) and ternary expressions (conditional jumps with both branches writing to a shared result variable), keeping the IR uniformly flat.
 
 ### Code Generation
 
@@ -134,7 +141,8 @@ This separation means the instruction selector never needs to reason about regis
 
 ## Roadmap
 
-- [ ] Control flow: `if`/`else`, ternary, `while`, `for`, `do-while`
+- [x] Control flow: `if`/`else`, ternary
+- [ ] Loops: `while`, `for`, `do-while`
 - [x] Compound assignment: `+=`, `-=`, `*=`, etc.
 - [ ] Increment/decrement: `++`, `--`
 - [ ] Functions: declarations, calls, parameters

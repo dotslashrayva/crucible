@@ -116,9 +116,51 @@ fn flatten_statement(statement: ast::Statement, ctx: &mut Context) {
             let result_val = flatten_expr(expr, ctx);
             ctx.append(ir::Instruction::Return(result_val));
         }
+
+        ast::Statement::If(condition, then_stmt, else_stmt) => {
+            let cond_val = flatten_expr(condition, ctx);
+
+            match else_stmt {
+                None => {
+                    let end_label = ctx.alloc_label("if_end");
+
+                    ctx.append(ir::Instruction::JumpIfZero {
+                        condition: cond_val,
+                        target: end_label.clone(),
+                    });
+
+                    flatten_statement(*then_stmt, ctx);
+
+                    ctx.append(ir::Instruction::Label(end_label));
+                }
+                Some(else_stmt) => {
+                    let else_label = ctx.alloc_label("if_else");
+                    let end_label = ctx.alloc_label("if_end");
+
+                    ctx.append(ir::Instruction::JumpIfZero {
+                        condition: cond_val,
+                        target: else_label.clone(),
+                    });
+
+                    flatten_statement(*then_stmt, ctx);
+
+                    ctx.append(ir::Instruction::Jump {
+                        target: end_label.clone(),
+                    });
+
+                    ctx.append(ir::Instruction::Label(else_label));
+
+                    flatten_statement(*else_stmt, ctx);
+
+                    ctx.append(ir::Instruction::Label(end_label));
+                }
+            }
+        }
+
         ast::Statement::Expression(expr) => {
             flatten_expr(expr, ctx);
         }
+
         ast::Statement::Null => {}
     }
 }
@@ -264,6 +306,40 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> ir::Value {
         }
 
         ast::Expr::Variable(name) => ir::Value::Variable(name),
+
+        ast::Expr::Conditional(condition, then_expr, else_expr) => {
+            let result = ctx.alloc_var();
+            let else_label = ctx.alloc_label("cond_else");
+            let end_label = ctx.alloc_label("cond_end");
+
+            let cond_val = flatten_expr(*condition, ctx);
+
+            ctx.append(ir::Instruction::JumpIfZero {
+                condition: cond_val,
+                target: else_label.clone(),
+            });
+
+            let v1 = flatten_expr(*then_expr, ctx);
+            ctx.append(ir::Instruction::Copy {
+                src: v1,
+                dst: result.clone(),
+            });
+            ctx.append(ir::Instruction::Jump {
+                target: end_label.clone(),
+            });
+
+            ctx.append(ir::Instruction::Label(else_label));
+
+            let v2 = flatten_expr(*else_expr, ctx);
+            ctx.append(ir::Instruction::Copy {
+                src: v2,
+                dst: result.clone(),
+            });
+
+            ctx.append(ir::Instruction::Label(end_label));
+
+            return ir::Value::Variable(result);
+        }
 
         ast::Expr::Assignment(left, right) => {
             let dst = match *left {

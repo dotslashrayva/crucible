@@ -4,6 +4,9 @@ pub enum Token {
     Void,
     Return,
 
+    If,
+    Else,
+
     Identifier(String),
     Constant(String),
 
@@ -17,6 +20,9 @@ pub enum Token {
     Exclaim,
     PlusPlus,
     MinusMinus,
+
+    Colon,
+    Question,
 
     Plus,
     Minus,

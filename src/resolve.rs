@@ -82,10 +82,26 @@ fn resolve_statement(stmt: Statement, ctx: &mut Context) -> Result<Statement, St
             let resolved = resolve_exp(expr, ctx)?;
             Ok(Statement::Return(resolved))
         }
+
         Statement::Expression(expr) => {
             let resolved = resolve_exp(expr, ctx)?;
             Ok(Statement::Expression(resolved))
         }
+
+        Statement::If(condition, then_stmt, else_stmt) => {
+            let resolved_cond = resolve_exp(condition, ctx)?;
+            let resolved_then = resolve_statement(*then_stmt, ctx)?;
+            let resolved_else = match else_stmt {
+                Some(stmt) => Some(Box::new(resolve_statement(*stmt, ctx)?)),
+                None => None,
+            };
+            Ok(Statement::If(
+                resolved_cond,
+                Box::new(resolved_then),
+                resolved_else,
+            ))
+        }
+
         Statement::Null => Ok(Statement::Null),
     }
 }
@@ -124,6 +140,17 @@ fn resolve_exp(expr: Expr, ctx: &mut Context) -> Result<Expr, String> {
                 op,
                 Box::new(resolved_left),
                 Box::new(resolved_right),
+            ));
+        }
+
+        Expr::Conditional(condition, then_expr, else_expr) => {
+            let resolved_cond = resolve_exp(*condition, ctx)?;
+            let resolved_then = resolve_exp(*then_expr, ctx)?;
+            let resolved_else = resolve_exp(*else_expr, ctx)?;
+            return Ok(Expr::Conditional(
+                Box::new(resolved_cond),
+                Box::new(resolved_then),
+                Box::new(resolved_else),
             ));
         }
     }

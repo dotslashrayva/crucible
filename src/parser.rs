@@ -51,6 +51,7 @@ impl Parser {
             Token::Pipe => Some(15),
             Token::AmpAmp => Some(10),
             Token::PipePipe => Some(5),
+            Token::Question => Some(3),
             Token::Equal
             | Token::PlusEqual
             | Token::MinusEqual
@@ -87,6 +88,7 @@ impl Parser {
                 | Token::LessEqual
                 | Token::Greater
                 | Token::GreaterEqual
+                | Token::Question
                 | Token::Equal
                 | Token::PlusEqual
                 | Token::MinusEqual
@@ -229,6 +231,24 @@ impl Parser {
                 self.expect(Token::Semicolon, "Expected ';'")?;
                 Ok(Statement::Return(exp))
             }
+            // "if" "(" <exp> ")" <statement>
+            // Optional: "else" <statement>
+            Some(Token::If) => {
+                self.advance();
+                self.expect(Token::OpenParen, "Expected '('")?;
+                let exp = self.parse_exp(0)?;
+                self.expect(Token::CloseParen, "Expected ')'")?;
+                let if_state = self.parse_statement()?;
+
+                let else_state = if self.peek() == Some(&Token::Else) {
+                    self.advance();
+                    Some(Box::new(self.parse_statement()?))
+                } else {
+                    None
+                };
+
+                Ok(Statement::If(exp, Box::new(if_state), else_state))
+            }
             // Null statement: ";"
             Some(Token::Semicolon) => {
                 self.advance();
@@ -266,14 +286,24 @@ impl Parser {
                 self.advance();
                 let right = self.parse_exp(token_prec)?;
                 left = Expr::Assignment(Box::new(left), Box::new(right));
-            } else if let Some(binop) = Self::compound_to_binop(token) {
+            }
+            // Ternary
+            else if token == &Token::Question {
+                let middle = self.parse_conditional_middle()?;
+                let right = self.parse_exp(token_prec)?;
+                left = Expr::Conditional(Box::new(left), Box::new(middle), Box::new(right));
+            }
+            // Compound Assignment
+            else if let Some(binop) = Self::compound_to_binop(token) {
                 self.advance();
                 let right = self.parse_exp(token_prec)?;
                 left = Expr::Assignment(
                     Box::new(left.clone()),
                     Box::new(Expr::Binary(binop, Box::new(left), Box::new(right))),
                 );
-            } else {
+            }
+            // Binary Expression
+            else {
                 let operator = self.parse_binop()?;
                 let right = self.parse_exp(token_prec + 1)?;
                 left = Expr::Binary(operator, Box::new(left), Box::new(right));
@@ -281,6 +311,13 @@ impl Parser {
         }
 
         return Ok(left);
+    }
+
+    fn parse_conditional_middle(&mut self) -> Result<Expr, String> {
+        self.expect(Token::Question, "Expected '?'")?;
+        let middle = self.parse_exp(0)?;
+        self.expect(Token::Colon, "Expected ':'")?;
+        Ok(middle)
     }
 
     fn parse_factor(&mut self) -> Result<Expr, String> {
