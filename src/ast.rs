@@ -9,7 +9,12 @@ pub struct Program {
 #[derive(Debug)]
 pub struct Function {
     pub name: String,
-    pub body: Vec<Block>,
+    pub body: Block,
+}
+
+#[derive(Debug)]
+pub struct Block {
+    pub items: Vec<BlockItem>,
 }
 
 #[derive(Debug)]
@@ -23,11 +28,12 @@ pub enum Statement {
     Return(Expr),
     Expression(Expr),
     If(Expr, Box<Statement>, Option<Box<Statement>>),
+    Compound(Block),
     Null,
 }
 
 #[derive(Debug)]
-pub enum Block {
+pub enum BlockItem {
     State(Statement),
     Declare(Declaration),
 }

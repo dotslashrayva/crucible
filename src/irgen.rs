@@ -79,9 +79,7 @@ pub fn flatten(ast_program: ast::Program) -> ir::Program {
 fn flatten_function(ast_func: ast::Function) -> ir::Function {
     let mut ctx = Context::new();
 
-    for block in ast_func.body {
-        flatten_block_item(block, &mut ctx);
-    }
+    flatten_block(ast_func.body, &mut ctx);
 
     if !matches!(ctx.instructions.last(), Some(ir::Instruction::Return(_))) {
         ctx.append(ir::Instruction::Return(ir::Value::Constant(0)));
@@ -93,10 +91,16 @@ fn flatten_function(ast_func: ast::Function) -> ir::Function {
     };
 }
 
-fn flatten_block_item(block: ast::Block, ctx: &mut Context) {
-    match block {
-        ast::Block::Declare(decl) => flatten_declaration(decl, ctx),
-        ast::Block::State(stmt) => flatten_statement(stmt, ctx),
+fn flatten_block(block: ast::Block, ctx: &mut Context) {
+    for item in block.items {
+        flatten_block_item(item, ctx);
+    }
+}
+
+fn flatten_block_item(item: ast::BlockItem, ctx: &mut Context) {
+    match item {
+        ast::BlockItem::Declare(decl) => flatten_declaration(decl, ctx),
+        ast::BlockItem::State(stmt) => flatten_statement(stmt, ctx),
     }
 }
 
@@ -159,6 +163,10 @@ fn flatten_statement(statement: ast::Statement, ctx: &mut Context) {
 
         ast::Statement::Expression(expr) => {
             flatten_expr(expr, ctx);
+        }
+
+        ast::Statement::Compound(block) => {
+            flatten_block(block, ctx);
         }
 
         ast::Statement::Null => {}

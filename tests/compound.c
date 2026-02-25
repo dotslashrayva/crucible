@@ -1,17 +1,14 @@
 int main(void) {
-    int a = 10;
-    a += 5;
-    a -= 3;
-    a *= 2;
-    a /= 4;
-    a %= 3;
-
-    int b = 255;
-    b &= 15;
-    b |= 48;
-    b ^= 7;
-    b <<= 1;
-    b >>= 2;
-
-    return a + b;
+    int x = 1;
+    int y = 2;
+    {
+        int x = 10;
+        y = x + y;
+        {
+            int x = 100;
+            y = y + x;
+        }
+        y = y + x;
+    }
+    return y + x;
 }

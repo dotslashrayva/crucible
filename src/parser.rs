@@ -166,34 +166,39 @@ impl Parser {
         self.expect(Token::OpenParen, "Expected '('")?;
         self.expect(Token::Void, "Expected 'void'")?;
         self.expect(Token::CloseParen, "Expected ')'")?;
-        self.expect(Token::OpenBrace, "Expected '{'")?;
 
-        // Parse block items until we hit '}'
-        let mut body = Vec::new();
-
-        // Process until Close Brace
-        while self.peek() != Some(&Token::CloseBrace) {
-            let block_item = self.parse_block_item()?;
-            body.push(block_item);
-        }
-
-        // Expect Close Brace
-        self.expect(Token::CloseBrace, "Expected '}'")?;
+        // Parse function body as a block
+        let body = self.parse_block()?;
 
         return Ok(Function { name, body });
     }
 
-    fn parse_block_item(&mut self) -> Result<Block, String> {
+    fn parse_block(&mut self) -> Result<Block, String> {
+        self.expect(Token::OpenBrace, "Expected '{'")?;
+
+        let mut items = Vec::new();
+
+        while self.peek() != Some(&Token::CloseBrace) {
+            let block_item = self.parse_block_item()?;
+            items.push(block_item);
+        }
+
+        self.expect(Token::CloseBrace, "Expected '}'")?;
+
+        return Ok(Block { items });
+    }
+
+    fn parse_block_item(&mut self) -> Result<BlockItem, String> {
         match self.peek() {
             // Declaration starts with 'int'
             Some(Token::Int) => {
                 let decl = self.parse_declaration()?;
-                Ok(Block::Declare(decl))
+                Ok(BlockItem::Declare(decl))
             }
             // Everything else is a statement
             _ => {
                 let stmt = self.parse_statement()?;
-                Ok(Block::State(stmt))
+                Ok(BlockItem::State(stmt))
             }
         }
     }
@@ -231,6 +236,7 @@ impl Parser {
                 self.expect(Token::Semicolon, "Expected ';'")?;
                 Ok(Statement::Return(exp))
             }
+
             // "if" "(" <exp> ")" <statement>
             // Optional: "else" <statement>
             Some(Token::If) => {
@@ -249,11 +255,19 @@ impl Parser {
 
                 Ok(Statement::If(exp, Box::new(if_state), else_state))
             }
+
+            // Compound statement: <block>
+            Some(Token::OpenBrace) => {
+                let block = self.parse_block()?;
+                Ok(Statement::Compound(block))
+            }
+
             // Null statement: ";"
             Some(Token::Semicolon) => {
                 self.advance();
                 Ok(Statement::Null)
             }
+
             // Expression statement: <exp> ";"
             _ => {
                 let exp = self.parse_exp(0)?;
@@ -278,10 +292,7 @@ impl Parser {
                 break;
             }
 
-            // Handle '=' as right-associative assignment
-            // Handle compound assignments (+=, -=, etc.) by desugaring
-            // Desugar: a op= b -> a = (a op b)
-            // else as Left-associative binary operators
+            // Handle Assignment as right-associative
             if token == &Token::Equal {
                 self.advance();
                 let right = self.parse_exp(token_prec)?;
@@ -293,16 +304,19 @@ impl Parser {
                 let right = self.parse_exp(token_prec)?;
                 left = Expr::Conditional(Box::new(left), Box::new(middle), Box::new(right));
             }
-            // Compound Assignment
+            // Compound Assignment by desugaring
+            // Desugar: a op= b -> a = (a op b)
             else if let Some(binop) = Self::compound_to_binop(token) {
                 self.advance();
                 let right = self.parse_exp(token_prec)?;
+
                 left = Expr::Assignment(
                     Box::new(left.clone()),
                     Box::new(Expr::Binary(binop, Box::new(left), Box::new(right))),
                 );
             }
             // Binary Expression
+            // As Left-associative
             else {
                 let operator = self.parse_binop()?;
                 let right = self.parse_exp(token_prec + 1)?;

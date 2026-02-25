@@ -2,8 +2,14 @@ use std::collections::HashMap;
 
 use crate::ast::*;
 
+#[derive(Clone)]
+struct MapEntry {
+    unique_name: String,
+    from_current_block: bool,
+}
+
 struct Context {
-    variable_map: HashMap<String, String>,
+    variable_map: HashMap<String, MapEntry>,
     counter: usize,
 }
 
@@ -21,6 +27,23 @@ impl Context {
         self.counter += 1;
         return unique;
     }
+
+    // Create a copy of the variable map
+    fn copy_variable_map(&self) -> HashMap<String, MapEntry> {
+        let mut new_map = HashMap::new();
+
+        for (name, entry) in &self.variable_map {
+            new_map.insert(
+                name.clone(),
+                MapEntry {
+                    unique_name: entry.unique_name.clone(),
+                    from_current_block: false,
+                },
+            );
+        }
+
+        return new_map;
+    }
 }
 
 // Main resolve function
@@ -31,12 +54,7 @@ pub fn resolve(program: Program) -> Result<Program, String> {
 
 fn resolve_function(func: Function) -> Result<Function, String> {
     let mut ctx = Context::new();
-    let mut resolved_body = Vec::new();
-
-    for block in func.body {
-        let resolved = resolve_block_item(block, &mut ctx)?;
-        resolved_body.push(resolved);
-    }
+    let resolved_body = resolve_block(func.body, &mut ctx)?;
 
     return Ok(Function {
         name: func.name,
@@ -44,26 +62,48 @@ fn resolve_function(func: Function) -> Result<Function, String> {
     });
 }
 
-fn resolve_block_item(block: Block, ctx: &mut Context) -> Result<Block, String> {
-    match block {
-        Block::Declare(decl) => {
+fn resolve_block(block: Block, ctx: &mut Context) -> Result<Block, String> {
+    let mut resolved_items = Vec::new();
+
+    for item in block.items {
+        let resolved = resolve_block_item(item, ctx)?;
+        resolved_items.push(resolved);
+    }
+
+    return Ok(Block {
+        items: resolved_items,
+    });
+}
+
+fn resolve_block_item(item: BlockItem, ctx: &mut Context) -> Result<BlockItem, String> {
+    match item {
+        BlockItem::Declare(decl) => {
             let resolved = resolve_declaration(decl, ctx)?;
-            Ok(Block::Declare(resolved))
+            Ok(BlockItem::Declare(resolved))
         }
-        Block::State(stmt) => {
+        BlockItem::State(stmt) => {
             let resolved = resolve_statement(stmt, ctx)?;
-            Ok(Block::State(resolved))
+            Ok(BlockItem::State(resolved))
         }
     }
 }
 
 fn resolve_declaration(decl: Declaration, ctx: &mut Context) -> Result<Declaration, String> {
-    if ctx.variable_map.contains_key(&decl.name) {
-        return Err(format!("Duplicate variable declaration: '{}'", decl.name));
+    // Check for duplicate declaration in the CURRENT block
+    if let Some(entry) = ctx.variable_map.get(&decl.name) {
+        if entry.from_current_block {
+            return Err(format!("Duplicate variable declaration: '{}'", decl.name));
+        }
     }
 
     let unique_name = ctx.make_temporary(&decl.name);
-    ctx.variable_map.insert(decl.name, unique_name.clone());
+    ctx.variable_map.insert(
+        decl.name,
+        MapEntry {
+            unique_name: unique_name.clone(),
+            from_current_block: true,
+        },
+    );
 
     let init = match decl.init {
         Some(expr) => Some(resolve_exp(expr, ctx)?),
@@ -102,6 +142,20 @@ fn resolve_statement(stmt: Statement, ctx: &mut Context) -> Result<Statement, St
             ))
         }
 
+        Statement::Compound(block) => {
+            // Copy the variable map with from_current_block reset to false,
+            // so inner declarations can shadow outer ones without error
+            let saved_map = ctx.variable_map.clone();
+            ctx.variable_map = ctx.copy_variable_map();
+
+            let resolved_block = resolve_block(block, ctx)?;
+
+            // Restore the outer scope's variable map
+            ctx.variable_map = saved_map;
+
+            Ok(Statement::Compound(resolved_block))
+        }
+
         Statement::Null => Ok(Statement::Null),
     }
 }
@@ -111,7 +165,7 @@ fn resolve_exp(expr: Expr, ctx: &mut Context) -> Result<Expr, String> {
         Expr::Constant(val) => return Ok(Expr::Constant(val)),
 
         Expr::Variable(name) => match ctx.variable_map.get(&name) {
-            Some(unique_name) => return Ok(Expr::Variable(unique_name.clone())),
+            Some(entry) => return Ok(Expr::Variable(entry.unique_name.clone())),
             None => return Err(format!("Undeclared variable: '{}'", name)),
         },
 

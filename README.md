@@ -26,12 +26,20 @@ int main(void) {
     result += x;
     result >>= 1;
 
-    if (result > 20)
-        result = result - 5;
-    else
-        result = result + 5;
+    if (result > 20) {
+        int bias = 5;
+        result = result - bias;
+    } else {
+        int bias = 10;
+        result = result + bias;
+    }
 
-    return result > 0 ? 1 : 0;
+    {
+        int x = result * 2;
+        result = x > 50 ? 1 : 0;
+    }
+
+    return result;
 }
 ```
 
@@ -47,7 +55,8 @@ Crucible handles:
 - Logical: `&&` `||` `!` with short-circuit evaluation
 - Comparison: `==` `!=` `<` `<=` `>` `>=`
 - Compound assignment: `+=` `-=` `*=` `/=` `%=` `&=` `|=` `^=` `<<=` `>>=`
-- Control flow: `if`/`else`, ternary (`? :`)
+- Control flow: `if`/`else`, ternary (`? :`), compound statements (`{ ... }`)
+- Block scoping: nested scopes with variable shadowing
 - Local variables with declarations, assignments, and chained assignment (`a = b = 5`)
 - Operator precedence and associativity (17 levels, parsed via precedence climbing)
 
@@ -107,9 +116,11 @@ The parser uses recursive descent for statements and declarations, and switches 
 Variable resolution is implemented as a **dedicated AST-to-AST transformation pass**, decoupled from both the parser and the IR generator. This separation is a deliberate design choice: the parser stays grammar-focused with no symbol table concerns, and downstream passes receive a pre-validated AST where every variable reference is guaranteed to be valid and globally unique.
 
 The resolver enforces three invariants:
-1. **No duplicate declarations**: a variable name may only be declared once within a scope
+1. **No duplicate declarations**: a variable name may only be declared once within a single scope
 2. **No undeclared references**: every variable use must have a corresponding prior declaration
 3. **Valid lvalues**: the left side of an assignment must be an addressable location
+
+Block scoping is implemented by maintaining a variable map that tracks both the unique name and whether each entry was declared in the current block. When entering a compound statement, the map is copied with all "declared in current block" flags reset to false. This allows inner scopes to shadow outer variables without triggering the duplicate declaration check, while still catching true duplicates within the same scope. On exit, the original map is restored so inner declarations don't leak into the outer scope.
 
 Every variable is renamed with a unique identifier during this pass (`x` -> `x.0`, `y` -> `y.1`), which eliminates the possibility of name collisions between user-defined variables and compiler-generated temporaries in all subsequent stages.
 
@@ -119,7 +130,7 @@ The AST is flattened into **three-address code**, a linear sequence of instructi
 
 Compiler-generated temporaries (`tmp.0`, `tmp.1`, ...) are introduced to decompose complex expressions into discrete steps. The namespace separation between resolver-generated names (`x.0`) and IR temporaries (`tmp.0`) is maintained by convention, ensuring no collisions without requiring a global symbol table at this stage.
 
-Short-circuit evaluation for `&&` and `||` is lowered here through **control flow linearization**. Logical operators become sequences of conditional jumps, labels, and copy instructions rather than value-producing binary operations. This correctly models C's evaluation semantics where the right operand may never execute. The same mechanism handles `if`/`else` statements (conditional jumps around statement blocks) and ternary expressions (conditional jumps with both branches writing to a shared result variable), keeping the IR uniformly flat.
+Short-circuit evaluation for `&&` and `||` is lowered here through **control flow linearization**. Logical operators become sequences of conditional jumps, labels, and copy instructions rather than value-producing binary operations. This correctly models C's evaluation semantics where the right operand may never execute. The same mechanism handles `if`/`else` statements (conditional jumps around statement blocks) and ternary expressions (conditional jumps with both branches writing to a shared result variable), keeping the IR uniformly flat. Compound statements are transparent at this level — their block items are simply flattened inline, since scoping has already been resolved by the semantic analysis pass.
 
 ### Code Generation
 
@@ -142,6 +153,7 @@ This separation means the instruction selector never needs to reason about regis
 ## Roadmap
 
 - [x] Control flow: `if`/`else`, ternary
+- [x] Compound statements and block scoping
 - [ ] Loops: `while`, `for`, `do-while`
 - [x] Compound assignment: `+=`, `-=`, `*=`, etc.
 - [ ] Increment/decrement: `++`, `--`
