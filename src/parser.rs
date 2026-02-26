@@ -227,6 +227,29 @@ impl Parser {
         return Ok(Declaration { name, init });
     }
 
+    // parse the initialize in the for loop
+    fn parse_for_init(&mut self) -> Result<ForInit, String> {
+        match self.peek() {
+            // If we see 'int', it's a declaration (which consumes its own semicolon)
+            Some(Token::Int) => {
+                let decl = self.parse_declaration()?;
+                Ok(ForInit::InitDecl(decl))
+            }
+
+            // Otherwise it's an optional expression followed by ";"
+            Some(Token::Semicolon) => {
+                self.advance(); // consume ';'
+                Ok(ForInit::InitExp(None))
+            }
+
+            _ => {
+                let exp = self.parse_exp(0)?;
+                self.expect(Token::Semicolon, "Expected ';'")?;
+                Ok(ForInit::InitExp(Some(exp)))
+            }
+        }
+    }
+
     fn parse_statement(&mut self) -> Result<Statement, String> {
         match self.peek() {
             // "return" <exp> ";"
@@ -260,6 +283,81 @@ impl Parser {
             Some(Token::OpenBrace) => {
                 let block = self.parse_block()?;
                 Ok(Statement::Compound(block))
+            }
+
+            // "break" ";"
+            Some(Token::Break) => {
+                self.advance();
+                self.expect(Token::Semicolon, "Expected ';'")?;
+                Ok(Statement::Break(String::new()))
+            }
+
+            // "continue" ";"
+            Some(Token::Continue) => {
+                self.advance();
+                self.expect(Token::Semicolon, "Expected ';'")?;
+                Ok(Statement::Continue(String::new()))
+            }
+
+            // "while" "(" <exp> ")" <statement>
+            Some(Token::While) => {
+                self.advance();
+                self.expect(Token::OpenParen, "Expected '('")?;
+
+                let condition = self.parse_exp(0)?;
+                self.expect(Token::CloseParen, "Expected ')'")?;
+                let body = self.parse_statement()?;
+
+                Ok(Statement::While(condition, Box::new(body), String::new()))
+            }
+
+            // "do" <statement> "while" "(" <exp> ")" ";"
+            Some(Token::Do) => {
+                self.advance();
+                let body = self.parse_statement()?;
+
+                self.expect(Token::While, "Expected 'while'")?;
+                self.expect(Token::OpenParen, "Expected '('")?;
+
+                let condition = self.parse_exp(0)?;
+
+                self.expect(Token::CloseParen, "Expected ')'")?;
+                self.expect(Token::Semicolon, "Expected ';'")?;
+
+                Ok(Statement::DoWhile(Box::new(body), condition, String::new()))
+            }
+
+            // "for" "(" <for-init> [ <exp> ] ";" [ <exp> ] ")" <statement>
+            Some(Token::For) => {
+                self.advance();
+                self.expect(Token::OpenParen, "Expected '('")?;
+
+                let init = self.parse_for_init()?;
+
+                // Optional condition
+                let condition = if self.peek() == Some(&Token::Semicolon) {
+                    None
+                } else {
+                    Some(self.parse_exp(0)?)
+                };
+                self.expect(Token::Semicolon, "Expected ';'")?;
+
+                // Optional post expression
+                let post = if self.peek() == Some(&Token::CloseParen) {
+                    None
+                } else {
+                    Some(self.parse_exp(0)?)
+                };
+                self.expect(Token::CloseParen, "Expected ')'")?;
+
+                let body = self.parse_statement()?;
+                Ok(Statement::For(
+                    init,
+                    condition,
+                    post,
+                    Box::new(body),
+                    String::new(),
+                ))
             }
 
             // Null statement: ";"

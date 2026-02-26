@@ -7,6 +7,12 @@ pub enum Token {
     If,
     Else,
 
+    Do,
+    While,
+    For,
+    Break,
+    Continue,
+
     Identifier(String),
     Constant(String),
 

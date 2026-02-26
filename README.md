@@ -5,7 +5,7 @@ A C compiler, handwritten in Rust.
 Crucible compiles a subset of C down to x86-64 assembly (Intel syntax), performing lexical analysis, parsing, semantic analysis, IR generation, and code generation. No LLVM, no parser generators, no shortcuts.
 
 ```
-source.c -> Lexer -> Parser -> Resolver -> IR Gen -> CodeGen -> Emitter -> x86-64 assembly
+source.c -> Lexer -> Parser -> Resolver -> Loop Labeler -> IR Gen -> CodeGen -> Emitter -> x86-64 assembly
 ```
 
 ## Quick Start
@@ -20,9 +20,28 @@ cargo build --release
 
 ```c
 int main(void) {
-    int x = 10;
-    int y = 3;
-    int result = ((x + y) * 2 - x % y) << 1;
+    int sum = 0;
+    for (int i = 1; i <= 10; i += 1) {
+        if (i % 2 == 0)
+            continue;
+        sum += i;
+    }
+
+    int x = 100;
+    while (x > 1) {
+        x = x / 2;
+        if (x < 10)
+            break;
+    }
+
+    int factorial = 1;
+    int n = 5;
+    do {
+        factorial *= n;
+        n -= 1;
+    } while (n > 0);
+
+    int result = ((sum + x) * 2 - factorial % 7) << 1;
     result += x;
     result >>= 1;
 
@@ -46,7 +65,7 @@ int main(void) {
 ```bash
 $ crucible example.c
 $ ./example
-$ echo $?  # 1
+$ echo $?
 ```
 
 Crucible handles:
@@ -56,7 +75,8 @@ Crucible handles:
 - Comparison: `==` `!=` `<` `<=` `>` `>=`
 - Compound assignment: `+=` `-=` `*=` `/=` `%=` `&=` `|=` `^=` `<<=` `>>=`
 - Control flow: `if`/`else`, ternary (`? :`), compound statements (`{ ... }`)
-- Block scoping: nested scopes with variable shadowing
+- Loops: `while`, `do`/`while`, `for` with `break` and `continue`
+- Block scoping: nested scopes with variable shadowing (including `for` loop headers)
 - Local variables with declarations, assignments, and chained assignment (`a = b = 5`)
 - Operator precedence and associativity (17 levels, parsed via precedence climbing)
 
@@ -83,7 +103,7 @@ Each stage is a self-contained transformation with well-defined input/output bou
 |-------|--------|---------------|
 | Lexing | `lexer.rs` | Source -> `Vec<Token>` |
 | Parsing | `parser.rs` | Tokens -> AST |
-| Semantic Analysis | `resolve.rs` | AST -> AST (validated, variables renamed) |
+| Semantic Analysis | `resolve.rs` | AST -> AST (validated, variables renamed, loops labeled) |
 | IR Generation | `irgen.rs` | AST -> Three-Address Code |
 | Code Generation | `codegen.rs` | TAC -> x86-64 instructions |
 | Emission | `emit.rs` | Instructions -> Assembly text |
@@ -96,7 +116,7 @@ src/
 ├── lexer.rs      # Regex-based tokenizer
 ├── ast.rs        # AST node types
 ├── parser.rs     # Recursive descent + precedence climbing
-├── resolve.rs    # Variable resolution (semantic analysis)
+├── resolve.rs    # Variable resolution + loop labeling (semantic analysis)
 ├── ir.rs         # Three-address code definitions
 ├── irgen.rs      # AST -> TAC lowering
 ├── asm.rs        # x86-64 instruction types
@@ -113,16 +133,18 @@ The parser uses recursive descent for statements and declarations, and switches 
 
 ### Semantic Analysis
 
-Variable resolution is implemented as a **dedicated AST-to-AST transformation pass**, decoupled from both the parser and the IR generator. This separation is a deliberate design choice: the parser stays grammar-focused with no symbol table concerns, and downstream passes receive a pre-validated AST where every variable reference is guaranteed to be valid and globally unique.
+Semantic analysis runs as **two separate AST-to-AST passes**, each traversing the entire program independently.
+
+**Pass 1: Variable Resolution.** Every variable is renamed with a unique identifier (`x` -> `x.0`, `y` -> `y.1`), eliminating name collisions between user-defined variables and compiler-generated temporaries in all subsequent stages.
 
 The resolver enforces three invariants:
 1. **No duplicate declarations**: a variable name may only be declared once within a single scope
 2. **No undeclared references**: every variable use must have a corresponding prior declaration
 3. **Valid lvalues**: the left side of an assignment must be an addressable location
 
-Block scoping is implemented by maintaining a variable map that tracks both the unique name and whether each entry was declared in the current block. When entering a compound statement, the map is copied with all "declared in current block" flags reset to false. This allows inner scopes to shadow outer variables without triggering the duplicate declaration check, while still catching true duplicates within the same scope. On exit, the original map is restored so inner declarations don't leak into the outer scope.
+Block scoping is implemented by maintaining a variable map that tracks both the unique name and whether each entry was declared in the current block. When entering a compound statement or `for` loop header, the map is copied with all "declared in current block" flags reset to false. This allows inner scopes to shadow outer variables without triggering the duplicate declaration check, while still catching true duplicates within the same scope. On exit, the original map is restored so inner declarations don't leak into the outer scope. The `for` loop header gets its own scope so a declaration like `for (int i = 0; ...)` is visible throughout the loop but not after it.
 
-Every variable is renamed with a unique identifier during this pass (`x` -> `x.0`, `y` -> `y.1`), which eliminates the possibility of name collisions between user-defined variables and compiler-generated temporaries in all subsequent stages.
+**Pass 2: Loop Labeling.** Every loop statement (`while`, `do`/`while`, `for`) is assigned a unique ID, and every `break` and `continue` statement is annotated with the ID of its enclosing loop. The current loop label is threaded through the AST traversal; when it's absent and a `break` or `continue` is encountered, the compiler emits an error. This decouples loop validation from both parsing and IR generation, the parser doesn't need to track loop nesting, and the IR generator can unconditionally emit jumps to deterministic label names derived from these IDs.
 
 ### IR Lowering
 
@@ -131,6 +153,13 @@ The AST is flattened into **three-address code**, a linear sequence of instructi
 Compiler-generated temporaries (`tmp.0`, `tmp.1`, ...) are introduced to decompose complex expressions into discrete steps. The namespace separation between resolver-generated names (`x.0`) and IR temporaries (`tmp.0`) is maintained by convention, ensuring no collisions without requiring a global symbol table at this stage.
 
 Short-circuit evaluation for `&&` and `||` is lowered here through **control flow linearization**. Logical operators become sequences of conditional jumps, labels, and copy instructions rather than value-producing binary operations. This correctly models C's evaluation semantics where the right operand may never execute. The same mechanism handles `if`/`else` statements (conditional jumps around statement blocks) and ternary expressions (conditional jumps with both branches writing to a shared result variable), keeping the IR uniformly flat. Compound statements are transparent at this level — their block items are simply flattened inline, since scoping has already been resolved by the semantic analysis pass.
+
+**Loop lowering** follows the same linearization pattern. Each loop construct is translated into a canonical sequence of labels and jumps:
+- **`while`**: condition check at the top, conditional exit, body, unconditional jump back
+- **`do`/`while`**: body first, then condition check with conditional jump back to the top
+- **`for`**: init clause, then the `while` pattern with a post-expression inserted between the body and the back-jump
+
+Each loop emits two well-known labels derived from its unique ID: a **continue label** (jump target for `continue`, placed where execution should resume) and a **break label** (jump target for `break`, placed after the loop). `break` and `continue` statements compile to a single `Jump` instruction targeting the appropriate label. When a `for` loop's condition is absent, the conditional exit jump is omitted entirely rather than emitting a trivially-true check, producing tighter IR.
 
 ### Code Generation
 
@@ -154,9 +183,11 @@ This separation means the instruction selector never needs to reason about regis
 
 - [x] Control flow: `if`/`else`, ternary
 - [x] Compound statements and block scoping
-- [ ] Loops: `while`, `for`, `do-while`
+- [x] Loops: `while`, `for`, `do`/`while`, `break`, `continue`
 - [x] Compound assignment: `+=`, `-=`, `*=`, etc.
 - [ ] Increment/decrement: `++`, `--`
+- [ ] Labeled statements and `goto`
+- [ ] `switch`, `case`, `default`
 - [ ] Functions: declarations, calls, parameters
 - [ ] Pointers and arrays
 - [ ] Multiple translation units

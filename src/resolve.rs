@@ -116,6 +116,26 @@ fn resolve_declaration(decl: Declaration, ctx: &mut Context) -> Result<Declarati
     });
 }
 
+fn resolve_optional_exp(expr: Option<Expr>, ctx: &mut Context) -> Result<Option<Expr>, String> {
+    match expr {
+        Some(e) => Ok(Some(resolve_exp(e, ctx)?)),
+        None => Ok(None),
+    }
+}
+
+fn resolve_for_init(init: ForInit, ctx: &mut Context) -> Result<ForInit, String> {
+    match init {
+        ForInit::InitDecl(decl) => {
+            let resolved = resolve_declaration(decl, ctx)?;
+            Ok(ForInit::InitDecl(resolved))
+        }
+        ForInit::InitExp(expr) => {
+            let resolved = resolve_optional_exp(expr, ctx)?;
+            Ok(ForInit::InitExp(resolved))
+        }
+    }
+}
+
 fn resolve_statement(stmt: Statement, ctx: &mut Context) -> Result<Statement, String> {
     match stmt {
         Statement::Return(expr) => {
@@ -154,6 +174,52 @@ fn resolve_statement(stmt: Statement, ctx: &mut Context) -> Result<Statement, St
             ctx.variable_map = saved_map;
 
             Ok(Statement::Compound(resolved_block))
+        }
+
+        // Break and Continue have no subexpressions to resolve
+        Statement::Break(label) => Ok(Statement::Break(label)),
+        Statement::Continue(label) => Ok(Statement::Continue(label)),
+
+        Statement::While(condition, body, label) => {
+            let resolved_cond = resolve_exp(condition, ctx)?;
+            let resolved_body = resolve_statement(*body, ctx)?;
+            Ok(Statement::While(
+                resolved_cond,
+                Box::new(resolved_body),
+                label,
+            ))
+        }
+
+        Statement::DoWhile(body, condition, label) => {
+            let resolved_body = resolve_statement(*body, ctx)?;
+            let resolved_cond = resolve_exp(condition, ctx)?;
+            Ok(Statement::DoWhile(
+                Box::new(resolved_body),
+                resolved_cond,
+                label,
+            ))
+        }
+
+        Statement::For(init, condition, post, body, label) => {
+            // For loop header introduces a new scope
+            let saved_map = ctx.variable_map.clone();
+            ctx.variable_map = ctx.copy_variable_map();
+
+            let resolved_init = resolve_for_init(init, ctx)?;
+            let resolved_cond = resolve_optional_exp(condition, ctx)?;
+            let resolved_post = resolve_optional_exp(post, ctx)?;
+            let resolved_body = resolve_statement(*body, ctx)?;
+
+            // Restore the outer scope's variable map
+            ctx.variable_map = saved_map;
+
+            Ok(Statement::For(
+                resolved_init,
+                resolved_cond,
+                resolved_post,
+                Box::new(resolved_body),
+                label,
+            ))
         }
 
         Statement::Null => Ok(Statement::Null),
@@ -207,5 +273,139 @@ fn resolve_exp(expr: Expr, ctx: &mut Context) -> Result<Expr, String> {
                 Box::new(resolved_else),
             ));
         }
+    }
+}
+
+// Loop Labeling
+
+struct LabelContext {
+    counter: usize,
+}
+
+impl LabelContext {
+    fn new() -> Self {
+        Self { counter: 0 }
+    }
+
+    fn make_label(&mut self) -> String {
+        let label = format!("loop.{}", self.counter);
+        self.counter += 1;
+        label
+    }
+}
+
+pub fn label_loops(program: Program) -> Result<Program, String> {
+    let mut ctx = LabelContext::new();
+    let function = label_function(program.function, &mut ctx)?;
+    Ok(Program { function })
+}
+
+fn label_function(func: Function, ctx: &mut LabelContext) -> Result<Function, String> {
+    let labeled_body = label_block(func.body, ctx, &None)?;
+    Ok(Function {
+        name: func.name,
+        body: labeled_body,
+    })
+}
+
+fn label_block(
+    block: Block,
+    ctx: &mut LabelContext,
+    current_label: &Option<String>,
+) -> Result<Block, String> {
+    let mut labeled_items = Vec::new();
+
+    for item in block.items {
+        let labeled = label_block_item(item, ctx, current_label)?;
+        labeled_items.push(labeled);
+    }
+
+    Ok(Block {
+        items: labeled_items,
+    })
+}
+
+fn label_block_item(
+    item: BlockItem,
+    ctx: &mut LabelContext,
+    current_label: &Option<String>,
+) -> Result<BlockItem, String> {
+    match item {
+        BlockItem::Declare(decl) => Ok(BlockItem::Declare(decl)),
+        BlockItem::State(stmt) => {
+            let labeled = label_statement(stmt, ctx, current_label)?;
+            Ok(BlockItem::State(labeled))
+        }
+    }
+}
+
+fn label_statement(
+    stmt: Statement,
+    ctx: &mut LabelContext,
+    current_label: &Option<String>,
+) -> Result<Statement, String> {
+    match stmt {
+        Statement::Break(_) => match current_label {
+            Some(label) => Ok(Statement::Break(label.clone())),
+            None => Err("'break' statement outside of loop".to_string()),
+        },
+
+        Statement::Continue(_) => match current_label {
+            Some(label) => Ok(Statement::Continue(label.clone())),
+            None => Err("'continue' statement outside of loop".to_string()),
+        },
+
+        Statement::While(condition, body, _) => {
+            let new_label = ctx.make_label();
+            let labeled_body = label_statement(*body, ctx, &Some(new_label.clone()))?;
+            Ok(Statement::While(
+                condition,
+                Box::new(labeled_body),
+                new_label,
+            ))
+        }
+
+        Statement::DoWhile(body, condition, _) => {
+            let new_label = ctx.make_label();
+            let labeled_body = label_statement(*body, ctx, &Some(new_label.clone()))?;
+            Ok(Statement::DoWhile(
+                Box::new(labeled_body),
+                condition,
+                new_label,
+            ))
+        }
+
+        Statement::For(init, condition, post, body, _) => {
+            let new_label = ctx.make_label();
+            let labeled_body = label_statement(*body, ctx, &Some(new_label.clone()))?;
+            Ok(Statement::For(
+                init,
+                condition,
+                post,
+                Box::new(labeled_body),
+                new_label,
+            ))
+        }
+
+        Statement::If(condition, then_stmt, else_stmt) => {
+            let labeled_then = label_statement(*then_stmt, ctx, current_label)?;
+            let labeled_else = match else_stmt {
+                Some(stmt) => Some(Box::new(label_statement(*stmt, ctx, current_label)?)),
+                None => None,
+            };
+            Ok(Statement::If(
+                condition,
+                Box::new(labeled_then),
+                labeled_else,
+            ))
+        }
+
+        Statement::Compound(block) => {
+            let labeled_block = label_block(block, ctx, current_label)?;
+            Ok(Statement::Compound(labeled_block))
+        }
+
+        // These don't contain sub-statements, pass through unchanged
+        Statement::Return(_) | Statement::Expression(_) | Statement::Null => Ok(stmt),
     }
 }

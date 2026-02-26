@@ -10,8 +10,15 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
     let int_kw = Regex::new(r"^int\b").unwrap();
     let void_kw = Regex::new(r"^void\b").unwrap();
     let return_kw = Regex::new(r"^return\b").unwrap();
+
     let if_kw = Regex::new(r"^if\b").unwrap();
     let else_kw = Regex::new(r"^else\b").unwrap();
+
+    let do_kw = Regex::new(r"^do\b").unwrap();
+    let while_kw = Regex::new(r"^while\b").unwrap();
+    let for_kw = Regex::new(r"^for\b").unwrap();
+    let break_kw = Regex::new(r"^break\b").unwrap();
+    let continue_kw = Regex::new(r"^continue\b").unwrap();
 
     let ident = Regex::new(r"^[a-zA-Z_]\w*\b").unwrap();
     let number = Regex::new(r"^[0-9]+\b").unwrap();
@@ -74,6 +81,31 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
         }
         if let Some(m) = else_kw.find(input) {
             tokens.push(Token::Else);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = do_kw.find(input) {
+            tokens.push(Token::Do);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = while_kw.find(input) {
+            tokens.push(Token::While);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = for_kw.find(input) {
+            tokens.push(Token::For);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = break_kw.find(input) {
+            tokens.push(Token::Break);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = continue_kw.find(input) {
+            tokens.push(Token::Continue);
             input = &input[m.end()..];
             continue;
         }

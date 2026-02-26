@@ -32,6 +32,14 @@ impl Context {
         self.instructions.push(instr);
     }
 
+    fn break_label(loop_label: &str) -> String {
+        format!("break_{}", loop_label)
+    }
+
+    fn continue_label(loop_label: &str) -> String {
+        format!("continue_{}", loop_label)
+    }
+
     fn convert_unary_op(op: &ast::UnaryOperator) -> ir::UnaryOperator {
         match op {
             ast::UnaryOperator::Complement => ir::UnaryOperator::Complement,
@@ -114,6 +122,16 @@ fn flatten_declaration(decl: ast::Declaration, ctx: &mut Context) {
     }
 }
 
+fn flatten_for_init(init: ast::ForInit, ctx: &mut Context) {
+    match init {
+        ast::ForInit::InitDecl(decl) => flatten_declaration(decl, ctx),
+        ast::ForInit::InitExp(Some(expr)) => {
+            flatten_expr(expr, ctx);
+        }
+        ast::ForInit::InitExp(None) => {}
+    }
+}
+
 fn flatten_statement(statement: ast::Statement, ctx: &mut Context) {
     match statement {
         ast::Statement::Return(expr) => {
@@ -167,6 +185,97 @@ fn flatten_statement(statement: ast::Statement, ctx: &mut Context) {
 
         ast::Statement::Compound(block) => {
             flatten_block(block, ctx);
+        }
+
+        // break label; -> Jump(break_<label>)
+        ast::Statement::Break(label) => {
+            ctx.append(ir::Instruction::Jump {
+                target: Context::break_label(&label),
+            });
+        }
+
+        // continue label; -> Jump(continue_<label>)
+        ast::Statement::Continue(label) => {
+            ctx.append(ir::Instruction::Jump {
+                target: Context::continue_label(&label),
+            });
+        }
+
+        // While loop:
+        ast::Statement::While(condition, body, label) => {
+            let cont_label = Context::continue_label(&label);
+            let brk_label = Context::break_label(&label);
+
+            ctx.append(ir::Instruction::Label(cont_label.clone()));
+
+            let cond_val = flatten_expr(condition, ctx);
+            ctx.append(ir::Instruction::JumpIfZero {
+                condition: cond_val,
+                target: brk_label.clone(),
+            });
+
+            flatten_statement(*body, ctx);
+
+            ctx.append(ir::Instruction::Jump { target: cont_label });
+
+            ctx.append(ir::Instruction::Label(brk_label));
+        }
+
+        // Do-While loop:
+        ast::Statement::DoWhile(body, condition, label) => {
+            let start_label = ctx.alloc_label("do_start");
+            let cont_label = Context::continue_label(&label);
+            let brk_label = Context::break_label(&label);
+
+            ctx.append(ir::Instruction::Label(start_label.clone()));
+
+            flatten_statement(*body, ctx);
+
+            ctx.append(ir::Instruction::Label(cont_label));
+
+            let cond_val = flatten_expr(condition, ctx);
+            ctx.append(ir::Instruction::JumpIfNotZero {
+                condition: cond_val,
+                target: start_label,
+            });
+
+            ctx.append(ir::Instruction::Label(brk_label));
+        }
+
+        // For loop:
+        ast::Statement::For(init, condition, post, body, label) => {
+            let start_label = ctx.alloc_label("for_start");
+            let cont_label = Context::continue_label(&label);
+            let brk_label = Context::break_label(&label);
+
+            // Init clause
+            flatten_for_init(init, ctx);
+
+            ctx.append(ir::Instruction::Label(start_label.clone()));
+
+            // Condition: if present, emit JumpIfZero; if absent, omit entirely
+            if let Some(cond) = condition {
+                let cond_val = flatten_expr(cond, ctx);
+                ctx.append(ir::Instruction::JumpIfZero {
+                    condition: cond_val,
+                    target: brk_label.clone(),
+                });
+            }
+
+            flatten_statement(*body, ctx);
+
+            ctx.append(ir::Instruction::Label(cont_label));
+
+            // Post expression
+            if let Some(post_expr) = post {
+                flatten_expr(post_expr, ctx);
+            }
+
+            ctx.append(ir::Instruction::Jump {
+                target: start_label,
+            });
+
+            ctx.append(ir::Instruction::Label(brk_label));
         }
 
         ast::Statement::Null => {}

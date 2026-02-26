@@ -24,11 +24,26 @@ pub struct Declaration {
 }
 
 #[derive(Debug)]
+pub enum ForInit {
+    InitDecl(Declaration),
+    InitExp(Option<Expr>),
+}
+
+#[derive(Debug)]
 pub enum Statement {
     Return(Expr),
     Expression(Expr),
+
     If(Expr, Box<Statement>, Option<Box<Statement>>),
     Compound(Block),
+
+    Break(String),
+    Continue(String),
+
+    While(Expr, Box<Statement>, String),
+    DoWhile(Box<Statement>, Expr, String),
+    For(ForInit, Option<Expr>, Option<Expr>, Box<Statement>, String),
+
     Null,
 }
 
@@ -42,8 +57,10 @@ pub enum BlockItem {
 pub enum Expr {
     Constant(i32),
     Variable(String),
+
     Unary(UnaryOperator, Box<Expr>),
     Binary(BinaryOperator, Box<Expr>, Box<Expr>),
+
     Assignment(Box<Expr>, Box<Expr>),
     Conditional(Box<Expr>, Box<Expr>, Box<Expr>),
 }

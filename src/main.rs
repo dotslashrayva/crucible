@@ -20,6 +20,7 @@ use emit::emit;
 use irgen::flatten;
 use lexer::lex;
 use parser::parse;
+use resolve::label_loops;
 use resolve::resolve;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -94,6 +95,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let ast = match resolve(ast) {
+        Ok(ast) => ast,
+        Err(e) => return Err(format!("Semantic error: {}", e).into()),
+    };
+
+    let ast = match label_loops(ast) {
         Ok(ast) => ast,
         Err(e) => return Err(format!("Semantic error: {}", e).into()),
     };
