@@ -1,426 +1,286 @@
 use crate::ast::*;
 use std::collections::HashMap;
 
-// Semantic Analysis Stage
-// Variable Resolution Pass
-// We just rename the variables and reconstructs the Tree
-
-// The Variable Context struct keeps track of variables
+// Semantic Analysis Pass
+// Context struct carries all the state we need during the walk
 struct Context {
-    variable_map: HashMap<String, MapEntry>,
-    counter: usize,
+    scopes: Vec<HashMap<String, MapEntry>>,
+    var_counter: usize,
+    label_counter: usize,
 }
 
+// Newtype pattern
 #[derive(Clone)]
 struct MapEntry {
     unique_name: String,
-    from_current_block: bool,
 }
 
 impl Context {
     fn new() -> Self {
         Self {
-            variable_map: HashMap::new(),
-            counter: 0,
+            scopes: vec![HashMap::new()],
+            var_counter: 0,
+            label_counter: 0,
         }
     }
 
-    // Generate a new unique name for a variable
-    fn make_temporary(&mut self, name: &str) -> String {
-        let unique = format!("{}.{}", name, self.counter);
-        self.counter += 1;
-        return unique;
+    // Generate a unique variable name
+    fn make_unique_var(&mut self, name: &str) -> String {
+        let unique = format!("{}.{}", name, self.var_counter);
+        self.var_counter += 1;
+        unique
     }
 
-    // Create a copy of the variable map
-    fn copy_variable_map(&self) -> HashMap<String, MapEntry> {
-        let mut new_map = HashMap::new();
-
-        for (name, entry) in &self.variable_map {
-            new_map.insert(
-                name.clone(),
-                MapEntry {
-                    unique_name: entry.unique_name.clone(),
-                    from_current_block: false,
-                },
-            );
-        }
-
-        return new_map;
-    }
-}
-
-// Main resolve function
-pub fn resolve(program: Program) -> Result<Program, String> {
-    let function = resolve_function(program.function)?;
-    return Ok(Program { function });
-}
-
-fn resolve_function(func: Function) -> Result<Function, String> {
-    let mut ctx = Context::new();
-    let resolved_body = resolve_block(func.body, &mut ctx)?;
-
-    return Ok(Function {
-        name: func.name,
-        body: resolved_body,
-    });
-}
-
-fn resolve_block(block: Block, ctx: &mut Context) -> Result<Block, String> {
-    let mut resolved_items = Vec::new();
-
-    for item in block.items {
-        let resolved = resolve_block_item(item, ctx)?;
-        resolved_items.push(resolved);
-    }
-
-    return Ok(Block {
-        items: resolved_items,
-    });
-}
-
-fn resolve_block_item(item: BlockItem, ctx: &mut Context) -> Result<BlockItem, String> {
-    match item {
-        BlockItem::Declaration(decl) => {
-            let resolved_decl = resolve_declaration(decl, ctx)?;
-            Ok(BlockItem::Declaration(resolved_decl))
-        }
-
-        BlockItem::Statement(stmt) => {
-            let resolved_stmt = resolve_statement(stmt, ctx)?;
-            Ok(BlockItem::Statement(resolved_stmt))
-        }
-    }
-}
-
-fn resolve_declaration(decl: Declaration, ctx: &mut Context) -> Result<Declaration, String> {
-    // Check for duplicate declaration in the CURRENT block
-    if let Some(entry) = ctx.variable_map.get(&decl.name) {
-        if entry.from_current_block {
-            return Err(format!("Duplicate variable declaration: '{}'", decl.name));
-        }
-    }
-
-    let unique_name = ctx.make_temporary(&decl.name);
-    ctx.variable_map.insert(
-        decl.name,
-        MapEntry {
-            unique_name: unique_name.clone(),
-            from_current_block: true,
-        },
-    );
-
-    let init = match decl.init {
-        Some(expr) => Some(resolve_exp(expr, ctx)?),
-        None => None,
-    };
-
-    return Ok(Declaration {
-        name: unique_name,
-        init,
-    });
-}
-
-fn resolve_optional_exp(expr: Option<Expr>, ctx: &mut Context) -> Result<Option<Expr>, String> {
-    match expr {
-        Some(e) => Ok(Some(resolve_exp(e, ctx)?)),
-        None => Ok(None),
-    }
-}
-
-fn resolve_for_init(init: ForInit, ctx: &mut Context) -> Result<ForInit, String> {
-    match init {
-        ForInit::InitDecl(decl) => {
-            let resolved = resolve_declaration(decl, ctx)?;
-            Ok(ForInit::InitDecl(resolved))
-        }
-        ForInit::InitExpr(expr) => {
-            let resolved = resolve_optional_exp(expr, ctx)?;
-            Ok(ForInit::InitExpr(resolved))
-        }
-    }
-}
-
-fn resolve_statement(stmt: Statement, ctx: &mut Context) -> Result<Statement, String> {
-    match stmt {
-        Statement::Return(expr) => {
-            let resolved = resolve_exp(expr, ctx)?;
-            Ok(Statement::Return(resolved))
-        }
-
-        Statement::Expression(expr) => {
-            let resolved = resolve_exp(expr, ctx)?;
-            Ok(Statement::Expression(resolved))
-        }
-
-        Statement::If(condition, then_stmt, else_stmt) => {
-            let resolved_cond = resolve_exp(condition, ctx)?;
-            let resolved_then = resolve_statement(*then_stmt, ctx)?;
-            let resolved_else = match else_stmt {
-                Some(stmt) => Some(Box::new(resolve_statement(*stmt, ctx)?)),
-                None => None,
-            };
-            Ok(Statement::If(
-                resolved_cond,
-                Box::new(resolved_then),
-                resolved_else,
-            ))
-        }
-
-        Statement::Compound(block) => {
-            // Copy the variable map with from_current_block reset to false,
-            // so inner declarations can shadow outer ones without error
-            let saved_map = ctx.variable_map.clone();
-            ctx.variable_map = ctx.copy_variable_map();
-
-            let resolved_block = resolve_block(block, ctx)?;
-
-            // Restore the outer scope's variable map
-            ctx.variable_map = saved_map;
-
-            Ok(Statement::Compound(resolved_block))
-        }
-
-        // Break and Continue have no subexpressions to resolve
-        Statement::Break(label) => Ok(Statement::Break(label)),
-        Statement::Continue(label) => Ok(Statement::Continue(label)),
-
-        Statement::While(condition, body, label) => {
-            let resolved_cond = resolve_exp(condition, ctx)?;
-            let resolved_body = resolve_statement(*body, ctx)?;
-            Ok(Statement::While(
-                resolved_cond,
-                Box::new(resolved_body),
-                label,
-            ))
-        }
-
-        Statement::DoWhile(body, condition, label) => {
-            let resolved_body = resolve_statement(*body, ctx)?;
-            let resolved_cond = resolve_exp(condition, ctx)?;
-            Ok(Statement::DoWhile(
-                Box::new(resolved_body),
-                resolved_cond,
-                label,
-            ))
-        }
-
-        Statement::For(init, condition, post, body, label) => {
-            // For loop header introduces a new scope
-            let saved_map = ctx.variable_map.clone();
-            ctx.variable_map = ctx.copy_variable_map();
-
-            let resolved_init = resolve_for_init(init, ctx)?;
-            let resolved_cond = resolve_optional_exp(condition, ctx)?;
-            let resolved_post = resolve_optional_exp(post, ctx)?;
-            let resolved_body = resolve_statement(*body, ctx)?;
-
-            // Restore the outer scope's variable map
-            ctx.variable_map = saved_map;
-
-            Ok(Statement::For(
-                resolved_init,
-                resolved_cond,
-                resolved_post,
-                Box::new(resolved_body),
-                label,
-            ))
-        }
-
-        Statement::Null => Ok(Statement::Null),
-    }
-}
-
-fn resolve_exp(expr: Expr, ctx: &mut Context) -> Result<Expr, String> {
-    match expr {
-        Expr::Constant(val) => return Ok(Expr::Constant(val)),
-
-        Expr::Variable(name) => match ctx.variable_map.get(&name) {
-            Some(entry) => return Ok(Expr::Variable(entry.unique_name.clone())),
-            None => return Err(format!("Undeclared variable: '{}'", name)),
-        },
-
-        Expr::Assignment(left, right) => {
-            if !matches!(*left, Expr::Variable(_)) {
-                return Err("Invalid lvalue in assignment".to_string());
-            }
-
-            let resolved_left = resolve_exp(*left, ctx)?;
-            let resolved_right = resolve_exp(*right, ctx)?;
-            return Ok(Expr::Assignment(
-                Box::new(resolved_left),
-                Box::new(resolved_right),
-            ));
-        }
-
-        Expr::Unary(op, inner) => {
-            let resolved = resolve_exp(*inner, ctx)?;
-            return Ok(Expr::Unary(op, Box::new(resolved)));
-        }
-
-        Expr::Binary(op, left, right) => {
-            let resolved_left = resolve_exp(*left, ctx)?;
-            let resolved_right = resolve_exp(*right, ctx)?;
-            return Ok(Expr::Binary(
-                op,
-                Box::new(resolved_left),
-                Box::new(resolved_right),
-            ));
-        }
-
-        Expr::Conditional(condition, then_expr, else_expr) => {
-            let resolved_cond = resolve_exp(*condition, ctx)?;
-            let resolved_then = resolve_exp(*then_expr, ctx)?;
-            let resolved_else = resolve_exp(*else_expr, ctx)?;
-            return Ok(Expr::Conditional(
-                Box::new(resolved_cond),
-                Box::new(resolved_then),
-                Box::new(resolved_else),
-            ));
-        }
-    }
-}
-
-// Semantic Analysis Stage
-// Loop Labeling Pass
-// Attaches right labels to each Break and Continue
-
-// The Label Context struct keeps track of stuff
-struct LabelContext {
-    counter: usize,
-}
-
-impl LabelContext {
-    fn new() -> Self {
-        Self { counter: 0 }
-    }
-
+    // Generate a unique loop label
     fn make_label(&mut self) -> String {
-        let label = format!("loop.{}", self.counter);
-        self.counter += 1;
+        let label = format!("loop.{}", self.label_counter);
+        self.label_counter += 1;
         label
     }
-}
 
-// Main labelling function
-pub fn label_loops(program: Program) -> Result<Program, String> {
-    let mut ctx = LabelContext::new();
-    let function = label_function(program.function, &mut ctx)?;
-    Ok(Program { function })
-}
-
-fn label_function(func: Function, ctx: &mut LabelContext) -> Result<Function, String> {
-    let labeled_body = label_block(func.body, ctx, &None)?;
-    Ok(Function {
-        name: func.name,
-        body: labeled_body,
-    })
-}
-
-fn label_block(
-    block: Block,
-    ctx: &mut LabelContext,
-    current_label: &Option<String>,
-) -> Result<Block, String> {
-    let mut labeled_items = Vec::new();
-
-    for item in block.items {
-        let labeled = label_block_item(item, ctx, current_label)?;
-        labeled_items.push(labeled);
+    // Scope Management
+    // Push a new, empty scope onto the stack.
+    fn enter_scope(&mut self) {
+        self.scopes.push(HashMap::new());
     }
 
-    Ok(Block {
-        items: labeled_items,
-    })
-}
+    // Pop the innermost scope off the stack, instantly discarding its variables.
+    fn exit_scope(&mut self) {
+        self.scopes.pop().expect("Tried to pop the global scope!");
+    }
 
-fn label_block_item(
-    item: BlockItem,
-    ctx: &mut LabelContext,
-    current_label: &Option<String>,
-) -> Result<BlockItem, String> {
-    match item {
-        BlockItem::Declaration(decl) => Ok(BlockItem::Declaration(decl)),
+    // Check if a variable is declared in the current (innermost) scope.
+    // Useful for catching duplicate declarations in current scope.
+    fn is_in_current_scope(&self, name: &str) -> bool {
+        self.scopes.last().unwrap().contains_key(name)
+    }
 
-        BlockItem::Statement(stmt) => {
-            let labeled_stmt = label_statement(stmt, ctx, current_label)?;
-            Ok(BlockItem::Statement(labeled_stmt))
+    // Insert a new variable into the *current* (innermost) scope.
+    fn insert_var(&mut self, original_name: String, unique_name: String) {
+        let current_scope = self.scopes.last_mut().unwrap();
+        current_scope.insert(original_name, MapEntry { unique_name });
+    }
+
+    // Look up a variable by searching backwards from the innermost scope
+    // to the outermost scope. This handles shadowing
+    fn lookup_var(&self, name: &str) -> Option<String> {
+        // walk the vector backwards (stack)
+        for scope in self.scopes.iter().rev() {
+            if let Some(entry) = scope.get(name) {
+                return Some(entry.unique_name.clone());
+            }
         }
+
+        // Not found in any scope
+        return None;
     }
 }
 
-fn label_statement(
-    stmt: Statement,
-    ctx: &mut LabelContext,
+// Main (public) resolve function
+// Runs semantic analysis on the whole program (in place).
+pub fn resolve(program: &mut Program) -> Result<(), String> {
+    let mut ctx = Context::new();
+    resolve_function(&mut program.function, &mut ctx)
+}
+
+// Functions & Blocks
+fn resolve_function(func: &mut Function, ctx: &mut Context) -> Result<(), String> {
+    resolve_block(&mut func.body, ctx, &None)
+}
+
+fn resolve_block(
+    block: &mut Block,
+    ctx: &mut Context,
     current_label: &Option<String>,
-) -> Result<Statement, String> {
+) -> Result<(), String> {
+    for item in &mut block.items {
+        resolve_block_item(item, ctx, current_label)?;
+    }
+
+    return Ok(());
+}
+
+fn resolve_block_item(
+    item: &mut BlockItem,
+    ctx: &mut Context,
+    current_label: &Option<String>,
+) -> Result<(), String> {
+    match item {
+        BlockItem::Declaration(decl) => resolve_declaration(decl, ctx),
+        BlockItem::Statement(stmt) => resolve_statement(stmt, ctx, current_label),
+    }
+}
+
+fn resolve_declaration(decl: &mut Declaration, ctx: &mut Context) -> Result<(), String> {
+    let original_name = decl.name.clone();
+
+    // Reject duplicate declarations inside the same block.
+    // We just check the top of the stack.
+    if ctx.is_in_current_scope(&original_name) {
+        return Err(format!(
+            "Duplicate variable declaration: '{}'",
+            original_name
+        ));
+    }
+
+    // Generate a unique name and register it in the current scope.
+    let unique_name = ctx.make_unique_var(&original_name);
+    ctx.insert_var(original_name, unique_name.clone());
+
+    // Resolve the initializer expr, if there is one.
+    if let Some(init) = &mut decl.init {
+        resolve_exp(init, ctx)?;
+    }
+
+    // Rename the declaration.
+    decl.name = unique_name;
+
+    return Ok(());
+}
+
+fn resolve_statement(
+    stmt: &mut Statement,
+    ctx: &mut Context,
+    current_label: &Option<String>,
+) -> Result<(), String> {
     match stmt {
-        Statement::Break(_) => match current_label {
-            Some(label) => Ok(Statement::Break(label.clone())),
+        Statement::Return(expr) => resolve_exp(expr, ctx),
+        Statement::Expression(expr) => resolve_exp(expr, ctx),
+        Statement::Null => Ok(()),
+
+        // Break / Continue: attach the current loop's label
+        // If we're not inside any loop, that's an error.
+        Statement::Break(label) => match current_label {
+            Some(l) => {
+                *label = l.clone();
+                Ok(())
+            }
             None => Err("'break' statement outside of loop".to_string()),
         },
 
-        Statement::Continue(_) => match current_label {
-            Some(label) => Ok(Statement::Continue(label.clone())),
+        Statement::Continue(label) => match current_label {
+            Some(l) => {
+                *label = l.clone();
+                Ok(())
+            }
             None => Err("'continue' statement outside of loop".to_string()),
         },
 
-        Statement::While(condition, body, _) => {
-            let new_label = ctx.make_label();
-            let labeled_body = label_statement(*body, ctx, &Some(new_label.clone()))?;
-
-            Ok(Statement::While(
-                condition,
-                Box::new(labeled_body),
-                new_label,
-            ))
-        }
-
-        Statement::DoWhile(body, condition, _) => {
-            let new_label = ctx.make_label();
-            let labeled_body = label_statement(*body, ctx, &Some(new_label.clone()))?;
-
-            Ok(Statement::DoWhile(
-                Box::new(labeled_body),
-                condition,
-                new_label,
-            ))
-        }
-
-        Statement::For(init, condition, post, body, _) => {
-            let new_label = ctx.make_label();
-            let labeled_body = label_statement(*body, ctx, &Some(new_label.clone()))?;
-
-            Ok(Statement::For(
-                init,
-                condition,
-                post,
-                Box::new(labeled_body),
-                new_label,
-            ))
-        }
-
+        // If: resolve condition, then both branches
         Statement::If(condition, then_stmt, else_stmt) => {
-            let labeled_then = label_statement(*then_stmt, ctx, current_label)?;
+            resolve_exp(condition, ctx)?;
+            resolve_statement(then_stmt, ctx, current_label)?;
 
-            let labeled_else = match else_stmt {
-                Some(stmt) => Some(Box::new(label_statement(*stmt, ctx, current_label)?)),
-                None => None,
-            };
+            if let Some(else_branch) = else_stmt {
+                resolve_statement(else_branch, ctx, current_label)?;
+            }
 
-            Ok(Statement::If(
-                condition,
-                Box::new(labeled_then),
-                labeled_else,
-            ))
+            Ok(())
         }
 
+        // Compound: enter a new scope
         Statement::Compound(block) => {
-            let labeled_block = label_block(block, ctx, current_label)?;
-            Ok(Statement::Compound(labeled_block))
+            ctx.enter_scope();
+            resolve_block(block, ctx, current_label)?;
+            ctx.exit_scope();
+            Ok(())
         }
 
-        // These don't contain sub-statements, pass through unchanged
-        Statement::Return(_) | Statement::Expression(_) | Statement::Null => Ok(stmt),
+        // While loop: generate a label, resolve cond + body
+        Statement::While(condition, body, label) => {
+            let new_label = ctx.make_label();
+
+            resolve_exp(condition, ctx)?;
+            resolve_statement(body, ctx, &Some(new_label.clone()))?;
+
+            *label = new_label;
+            Ok(())
+        }
+
+        // Do-While: same idea, body comes before condition
+        Statement::DoWhile(body, condition, label) => {
+            let new_label = ctx.make_label();
+
+            resolve_statement(body, ctx, &Some(new_label.clone()))?;
+            resolve_exp(condition, ctx)?;
+
+            *label = new_label;
+            Ok(())
+        }
+
+        // For loop: new scope (for the loop variable) + new label
+        Statement::For(init, condition, post, body, label) => {
+            let new_label = ctx.make_label();
+
+            // The for-loop header introduces its own scope that
+            // they doesn't leak outside the loop.
+            ctx.enter_scope();
+
+            resolve_for_init(init, ctx)?;
+            resolve_optional_exp(condition, ctx)?;
+            resolve_optional_exp(post, ctx)?;
+            resolve_statement(body, ctx, &Some(new_label.clone()))?;
+
+            ctx.exit_scope();
+
+            *label = new_label;
+            Ok(())
+        }
+    }
+}
+
+fn resolve_for_init(init: &mut ForInit, ctx: &mut Context) -> Result<(), String> {
+    match init {
+        ForInit::InitDecl(decl) => resolve_declaration(decl, ctx),
+        ForInit::InitExpr(expr) => resolve_optional_exp(expr, ctx),
+    }
+}
+
+fn resolve_optional_exp(expr: &mut Option<Expr>, ctx: &mut Context) -> Result<(), String> {
+    if let Some(e) = expr {
+        resolve_exp(e, ctx)?;
+    }
+    Ok(())
+}
+
+fn resolve_exp(expr: &mut Expr, ctx: &mut Context) -> Result<(), String> {
+    match expr {
+        // Constants don't reference any variables, nothing to do.
+        Expr::Constant(_) => Ok(()),
+
+        // Variables: look up the source name and replace it with the
+        // unique name we assigned during declaration.
+        Expr::Variable(name) => match ctx.lookup_var(name) {
+            Some(unique_name) => {
+                *name = unique_name;
+                Ok(())
+            }
+            None => Err(format!("Undeclared variable: '{}'", name)),
+        },
+
+        // Assignment: the left-hand side must be a variable (lvalue check),
+        // then resolve both sides.
+        Expr::Assignment(left, right) => {
+            if !matches!(left.as_ref(), Expr::Variable(_)) {
+                return Err("Invalid lvalue in assignment".to_string());
+            }
+
+            resolve_exp(left, ctx)?;
+            resolve_exp(right, ctx)
+        }
+
+        // Unary / Binary / Conditional: just recurse into sub-expressions.
+        Expr::Unary(_, inner) => resolve_exp(inner, ctx),
+
+        Expr::Binary(_, left, right) => {
+            resolve_exp(left, ctx)?;
+            resolve_exp(right, ctx)
+        }
+
+        Expr::Conditional(condition, then_expr, else_expr) => {
+            resolve_exp(condition, ctx)?;
+            resolve_exp(then_expr, ctx)?;
+            resolve_exp(else_expr, ctx)
+        }
     }
 }

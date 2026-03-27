@@ -12,7 +12,6 @@ pub struct Function {
     pub body: Vec<Instruction>,
 }
 
-#[allow(unused)]
 #[derive(Debug)]
 pub enum Instruction {
     Return(Value),
@@ -47,8 +46,8 @@ pub enum Instruction {
 
 #[derive(Debug)]
 pub enum Value {
-    Constant(i32),    // like 8
-    Variable(String), // like tmp.0
+    Constant(i32),
+    Variable(String),
 }
 
 #[derive(Debug)]
