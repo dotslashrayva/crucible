@@ -20,6 +20,7 @@ impl Parser {
         return Parser { tokens, current: 0 };
     }
 
+    // Peeks a Token
     fn peek(&self) -> Option<&Token> {
         return self.tokens.get(self.current);
     }
@@ -39,6 +40,7 @@ impl Parser {
         }
     }
 
+    // Relative Precedence Values
     fn precedence(token: &Token) -> Option<u8> {
         match token {
             Token::Star | Token::Slash | Token::Percent => Some(50),
@@ -67,6 +69,7 @@ impl Parser {
         }
     }
 
+    // Checks if a Binary Operator
     fn is_binary_op(token: &Token) -> bool {
         matches!(
             token,
@@ -128,6 +131,7 @@ impl Parser {
         }
     }
 
+    // Converts Compound Operator
     fn compound_to_binop(token: &Token) -> Option<BinaryOperator> {
         match token {
             Token::PlusEqual => Some(BinaryOperator::Add),
@@ -145,6 +149,7 @@ impl Parser {
     }
 }
 
+// Core Parsing Functions
 impl Parser {
     fn parse_program(&mut self) -> Result<Program, String> {
         let function = self.parse_function()?;
@@ -192,13 +197,14 @@ impl Parser {
         match self.peek() {
             // Declaration starts with 'int'
             Some(Token::Int) => {
-                let decl = self.parse_declaration()?;
-                Ok(BlockItem::Declare(decl))
+                let declaration = self.parse_declaration()?;
+                Ok(BlockItem::Declaration(declaration))
             }
+
             // Everything else is a statement
             _ => {
-                let stmt = self.parse_statement()?;
-                Ok(BlockItem::State(stmt))
+                let statement = self.parse_statement()?;
+                Ok(BlockItem::Statement(statement))
             }
         }
     }
@@ -225,29 +231,6 @@ impl Parser {
         self.expect(Token::Semicolon, "Expected ';'")?;
 
         return Ok(Declaration { name, init });
-    }
-
-    // parse the initialize in the for loop
-    fn parse_for_init(&mut self) -> Result<ForInit, String> {
-        match self.peek() {
-            // If we see 'int', it's a declaration (which consumes its own semicolon)
-            Some(Token::Int) => {
-                let decl = self.parse_declaration()?;
-                Ok(ForInit::InitDecl(decl))
-            }
-
-            // Otherwise it's an optional expression followed by ";"
-            Some(Token::Semicolon) => {
-                self.advance(); // consume ';'
-                Ok(ForInit::InitExp(None))
-            }
-
-            _ => {
-                let exp = self.parse_exp(0)?;
-                self.expect(Token::Semicolon, "Expected ';'")?;
-                Ok(ForInit::InitExp(Some(exp)))
-            }
-        }
     }
 
     fn parse_statement(&mut self) -> Result<Statement, String> {
@@ -375,6 +358,29 @@ impl Parser {
         }
     }
 
+    // Parse the initialize in the for loop
+    fn parse_for_init(&mut self) -> Result<ForInit, String> {
+        match self.peek() {
+            // If we see 'int', it's a declaration (which consumes its own semicolon)
+            Some(Token::Int) => {
+                let decl = self.parse_declaration()?;
+                Ok(ForInit::InitDecl(decl))
+            }
+
+            // Otherwise it's an optional expression followed by ";"
+            Some(Token::Semicolon) => {
+                self.advance(); // consume ';'
+                Ok(ForInit::InitExpr(None))
+            }
+
+            _ => {
+                let exp = self.parse_exp(0)?;
+                self.expect(Token::Semicolon, "Expected ';'")?;
+                Ok(ForInit::InitExpr(Some(exp)))
+            }
+        }
+    }
+
     fn parse_exp(&mut self, min_prec: u8) -> Result<Expr, String> {
         let mut left = self.parse_factor()?;
 
@@ -425,6 +431,7 @@ impl Parser {
         return Ok(left);
     }
 
+    // Parse the Conditional Expr in Ternary Operator
     fn parse_conditional_middle(&mut self) -> Result<Expr, String> {
         self.expect(Token::Question, "Expected '?'")?;
         let middle = self.parse_exp(0)?;

@@ -18,15 +18,15 @@ pub struct Block {
 }
 
 #[derive(Debug)]
-pub struct Declaration {
-    pub name: String,
-    pub init: Option<Expr>,
+pub enum BlockItem {
+    Declaration(Declaration),
+    Statement(Statement),
 }
 
 #[derive(Debug)]
-pub enum ForInit {
-    InitDecl(Declaration),
-    InitExp(Option<Expr>),
+pub struct Declaration {
+    pub name: String,
+    pub init: Option<Expr>,
 }
 
 #[derive(Debug)]
@@ -48,9 +48,9 @@ pub enum Statement {
 }
 
 #[derive(Debug)]
-pub enum BlockItem {
-    State(Statement),
-    Declare(Declaration),
+pub enum ForInit {
+    InitDecl(Declaration),
+    InitExpr(Option<Expr>),
 }
 
 #[derive(Debug, Clone)]

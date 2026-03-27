@@ -1,16 +1,20 @@
+use crate::ast::*;
 use std::collections::HashMap;
 
-use crate::ast::*;
+// Semantic Analysis Stage
+// Variable Resolution Pass
+// We just rename the variables and reconstructs the Tree
+
+// The Variable Context struct keeps track of variables
+struct Context {
+    variable_map: HashMap<String, MapEntry>,
+    counter: usize,
+}
 
 #[derive(Clone)]
 struct MapEntry {
     unique_name: String,
     from_current_block: bool,
-}
-
-struct Context {
-    variable_map: HashMap<String, MapEntry>,
-    counter: usize,
 }
 
 impl Context {
@@ -21,7 +25,7 @@ impl Context {
         }
     }
 
-    // We just rename the variable
+    // Generate a new unique name for a variable
     fn make_temporary(&mut self, name: &str) -> String {
         let unique = format!("{}.{}", name, self.counter);
         self.counter += 1;
@@ -77,13 +81,14 @@ fn resolve_block(block: Block, ctx: &mut Context) -> Result<Block, String> {
 
 fn resolve_block_item(item: BlockItem, ctx: &mut Context) -> Result<BlockItem, String> {
     match item {
-        BlockItem::Declare(decl) => {
-            let resolved = resolve_declaration(decl, ctx)?;
-            Ok(BlockItem::Declare(resolved))
+        BlockItem::Declaration(decl) => {
+            let resolved_decl = resolve_declaration(decl, ctx)?;
+            Ok(BlockItem::Declaration(resolved_decl))
         }
-        BlockItem::State(stmt) => {
-            let resolved = resolve_statement(stmt, ctx)?;
-            Ok(BlockItem::State(resolved))
+
+        BlockItem::Statement(stmt) => {
+            let resolved_stmt = resolve_statement(stmt, ctx)?;
+            Ok(BlockItem::Statement(resolved_stmt))
         }
     }
 }
@@ -129,9 +134,9 @@ fn resolve_for_init(init: ForInit, ctx: &mut Context) -> Result<ForInit, String>
             let resolved = resolve_declaration(decl, ctx)?;
             Ok(ForInit::InitDecl(resolved))
         }
-        ForInit::InitExp(expr) => {
+        ForInit::InitExpr(expr) => {
             let resolved = resolve_optional_exp(expr, ctx)?;
-            Ok(ForInit::InitExp(resolved))
+            Ok(ForInit::InitExpr(resolved))
         }
     }
 }
@@ -276,8 +281,11 @@ fn resolve_exp(expr: Expr, ctx: &mut Context) -> Result<Expr, String> {
     }
 }
 
-// Loop Labeling
+// Semantic Analysis Stage
+// Loop Labeling Pass
+// Attaches right labels to each Break and Continue
 
+// The Label Context struct keeps track of stuff
 struct LabelContext {
     counter: usize,
 }
@@ -294,6 +302,7 @@ impl LabelContext {
     }
 }
 
+// Main labelling function
 pub fn label_loops(program: Program) -> Result<Program, String> {
     let mut ctx = LabelContext::new();
     let function = label_function(program.function, &mut ctx)?;
@@ -331,10 +340,11 @@ fn label_block_item(
     current_label: &Option<String>,
 ) -> Result<BlockItem, String> {
     match item {
-        BlockItem::Declare(decl) => Ok(BlockItem::Declare(decl)),
-        BlockItem::State(stmt) => {
-            let labeled = label_statement(stmt, ctx, current_label)?;
-            Ok(BlockItem::State(labeled))
+        BlockItem::Declaration(decl) => Ok(BlockItem::Declaration(decl)),
+
+        BlockItem::Statement(stmt) => {
+            let labeled_stmt = label_statement(stmt, ctx, current_label)?;
+            Ok(BlockItem::Statement(labeled_stmt))
         }
     }
 }
@@ -358,6 +368,7 @@ fn label_statement(
         Statement::While(condition, body, _) => {
             let new_label = ctx.make_label();
             let labeled_body = label_statement(*body, ctx, &Some(new_label.clone()))?;
+
             Ok(Statement::While(
                 condition,
                 Box::new(labeled_body),
@@ -368,6 +379,7 @@ fn label_statement(
         Statement::DoWhile(body, condition, _) => {
             let new_label = ctx.make_label();
             let labeled_body = label_statement(*body, ctx, &Some(new_label.clone()))?;
+
             Ok(Statement::DoWhile(
                 Box::new(labeled_body),
                 condition,
@@ -378,6 +390,7 @@ fn label_statement(
         Statement::For(init, condition, post, body, _) => {
             let new_label = ctx.make_label();
             let labeled_body = label_statement(*body, ctx, &Some(new_label.clone()))?;
+
             Ok(Statement::For(
                 init,
                 condition,
@@ -389,10 +402,12 @@ fn label_statement(
 
         Statement::If(condition, then_stmt, else_stmt) => {
             let labeled_then = label_statement(*then_stmt, ctx, current_label)?;
+
             let labeled_else = match else_stmt {
                 Some(stmt) => Some(Box::new(label_statement(*stmt, ctx, current_label)?)),
                 None => None,
             };
+
             Ok(Statement::If(
                 condition,
                 Box::new(labeled_then),

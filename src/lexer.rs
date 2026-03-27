@@ -20,6 +20,11 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
     let break_kw = Regex::new(r"^break\b").unwrap();
     let continue_kw = Regex::new(r"^continue\b").unwrap();
 
+    let goto_kw = Regex::new(r"^goto\b").unwrap();
+    let switch_kw = Regex::new(r"^switch\b").unwrap();
+    let case_kw = Regex::new(r"^case\b").unwrap();
+    let default_kw = Regex::new(r"^default\b").unwrap();
+
     let ident = Regex::new(r"^[a-zA-Z_]\w*\b").unwrap();
     let number = Regex::new(r"^[0-9]+\b").unwrap();
 
@@ -106,6 +111,26 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
         }
         if let Some(m) = continue_kw.find(input) {
             tokens.push(Token::Continue);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = goto_kw.find(input) {
+            tokens.push(Token::Goto);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = switch_kw.find(input) {
+            tokens.push(Token::Switch);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = case_kw.find(input) {
+            tokens.push(Token::Case);
+            input = &input[m.end()..];
+            continue;
+        }
+        if let Some(m) = default_kw.find(input) {
+            tokens.push(Token::Default);
             input = &input[m.end()..];
             continue;
         }
@@ -232,6 +257,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, String> {
             '{' => tokens.push(Token::OpenBrace),
             '}' => tokens.push(Token::CloseBrace),
             ';' => tokens.push(Token::Semicolon),
+            ',' => tokens.push(Token::Comma),
             '~' => tokens.push(Token::Tilde),
             '+' => tokens.push(Token::Plus),
             '-' => tokens.push(Token::Minus),

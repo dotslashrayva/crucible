@@ -107,8 +107,8 @@ fn flatten_block(block: ast::Block, ctx: &mut Context) {
 
 fn flatten_block_item(item: ast::BlockItem, ctx: &mut Context) {
     match item {
-        ast::BlockItem::Declare(decl) => flatten_declaration(decl, ctx),
-        ast::BlockItem::State(stmt) => flatten_statement(stmt, ctx),
+        ast::BlockItem::Declaration(decl) => flatten_declaration(decl, ctx),
+        ast::BlockItem::Statement(stmt) => flatten_statement(stmt, ctx),
     }
 }
 
@@ -125,10 +125,10 @@ fn flatten_declaration(decl: ast::Declaration, ctx: &mut Context) {
 fn flatten_for_init(init: ast::ForInit, ctx: &mut Context) {
     match init {
         ast::ForInit::InitDecl(decl) => flatten_declaration(decl, ctx),
-        ast::ForInit::InitExp(Some(expr)) => {
+        ast::ForInit::InitExpr(Some(expr)) => {
             flatten_expr(expr, ctx);
         }
-        ast::ForInit::InitExp(None) => {}
+        ast::ForInit::InitExpr(None) => {}
     }
 }
 

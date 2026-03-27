@@ -7,6 +7,12 @@ pub enum Token {
     If,
     Else,
 
+    Goto,
+
+    Switch,
+    Case,
+    Default,
+
     Do,
     While,
     For,
@@ -21,6 +27,7 @@ pub enum Token {
     OpenBrace,
     CloseBrace,
     Semicolon,
+    Comma,
 
     Tilde,
     Exclaim,

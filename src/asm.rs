@@ -12,7 +12,6 @@ pub struct Function {
     pub instructions: Vec<Instruction>,
 }
 
-#[allow(unused)]
 #[derive(Debug)]
 pub enum Instruction {
     Move { dst: Operand, src: Operand },
