@@ -564,5 +564,30 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> ir::Value {
 
             return ir::Value::Variable(dst);
         }
+
+        ast::Expr::CompoundAssignment(left, op, right) => {
+            let var = match *left {
+                ast::Expr::Variable(name) => name,
+                _ => unreachable!(),
+            };
+
+            let rhs_val = flatten_expr(*right, ctx);
+
+            let tmp = ctx.alloc_var();
+
+            ctx.append(ir::Instruction::Binary {
+                op: Context::convert_binary_op(&op),
+                src1: ir::Value::Variable(var.clone()),
+                src2: rhs_val,
+                dst: tmp.clone(),
+            });
+
+            ctx.append(ir::Instruction::Copy {
+                src: ir::Value::Variable(tmp.clone()),
+                dst: var.clone(),
+            });
+
+            ir::Value::Variable(tmp)
+        }
     }
 }

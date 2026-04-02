@@ -258,11 +258,20 @@ fn resolve_exp(expr: &mut Expr, ctx: &mut Context) -> Result<(), String> {
             None => Err(format!("Undeclared variable: '{}'", name)),
         },
 
-        // Assignment: the left-hand side must be a variable (lvalue check),
+        // Assignments: the left-hand side must be a variable (lvalue check),
         // then resolve both sides.
         Expr::Assignment(left, right) => {
             if !matches!(left.as_ref(), Expr::Variable(_)) {
                 return Err("Invalid lvalue in assignment".to_string());
+            }
+
+            resolve_exp(left, ctx)?;
+            resolve_exp(right, ctx)
+        }
+
+        Expr::CompoundAssignment(left, _op, right) => {
+            if !matches!(left.as_ref(), Expr::Variable(_)) {
+                return Err("Invalid lvalue in compound assignment".to_string());
             }
 
             resolve_exp(left, ctx)?;
@@ -284,7 +293,7 @@ fn resolve_exp(expr: &mut Expr, ctx: &mut Context) -> Result<(), String> {
             resolve_exp(inner, ctx)
         }
 
-        Expr::Binary(_, left, right) => {
+        Expr::Binary(_op, left, right) => {
             resolve_exp(left, ctx)?;
             resolve_exp(right, ctx)
         }

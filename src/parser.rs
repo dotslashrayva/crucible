@@ -338,7 +338,6 @@ impl Parser {
 
         loop {
             let token = self.peek();
-
             if !Self::is_binary_op(token) {
                 break;
             }
@@ -348,7 +347,7 @@ impl Parser {
                 break;
             }
 
-            // Handle Assignment as right-associative
+            // Assignment as right-associative
             if token == &Token::Equal {
                 self.advance();
                 let right = self.parse_exp(token_prec)?;
@@ -362,19 +361,13 @@ impl Parser {
                 let right = self.parse_exp(token_prec)?;
                 left = Expr::Conditional(Box::new(left), Box::new(middle), Box::new(right));
             }
-            // Compound Assignment by desugaring
-            // Desugar: a op= b -> a = (a op b)
-            else if let Some(binop) = Self::compound_to_binop(token) {
+            // Compound Assignment
+            else if let Some(binary_op) = Self::compound_to_binop(token) {
                 self.advance();
                 let right = self.parse_exp(token_prec)?;
-
-                left = Expr::Assignment(
-                    Box::new(left.clone()),
-                    Box::new(Expr::Binary(binop, Box::new(left), Box::new(right))),
-                );
+                left = Expr::CompoundAssignment(Box::new(left), binary_op, Box::new(right));
             }
-            // Binary Expression
-            // As Left-associative
+            // Binary Expression as left-associative
             else {
                 let operator = self.token_to_binary_op()?;
                 let right = self.parse_exp(token_prec + 1)?;
@@ -440,6 +433,7 @@ impl Parser {
 
     fn parse_paren_expr(&mut self) -> Result<Expr, String> {
         self.advance(); // consume '('
+
         let inner = self.parse_exp(0)?;
         self.expect(Token::CloseParen, "Expected ')'")?;
         return Ok(inner);

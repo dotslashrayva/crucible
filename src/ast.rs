@@ -66,6 +66,7 @@ pub enum Expr {
 
     Assignment(Box<Expr>, Box<Expr>),
     Conditional(Box<Expr>, Box<Expr>, Box<Expr>),
+    CompoundAssignment(Box<Expr>, BinaryOperator, Box<Expr>),
 }
 
 #[derive(Debug, Clone)]
