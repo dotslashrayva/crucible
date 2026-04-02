@@ -269,8 +269,20 @@ fn resolve_exp(expr: &mut Expr, ctx: &mut Context) -> Result<(), String> {
             resolve_exp(right, ctx)
         }
 
-        // Unary / Binary / Conditional: just recurse into sub-expressions.
-        Expr::Unary(_, inner) => resolve_exp(inner, ctx),
+        // Unary / Binary / Conditional: recurse into sub-expressions.
+        // Prefix ++/--: operand must be an lvalue
+        Expr::Unary(op, inner) => {
+            if matches!(
+                op,
+                UnaryOperator::PrefixIncrement | UnaryOperator::PrefixDecrement
+            ) {
+                if !matches!(inner.as_ref(), Expr::Variable(_)) {
+                    return Err("Invalid lvalue in prefix operation".to_string());
+                }
+            }
+
+            resolve_exp(inner, ctx)
+        }
 
         Expr::Binary(_, left, right) => {
             resolve_exp(left, ctx)?;
@@ -281,6 +293,14 @@ fn resolve_exp(expr: &mut Expr, ctx: &mut Context) -> Result<(), String> {
             resolve_exp(condition, ctx)?;
             resolve_exp(then_expr, ctx)?;
             resolve_exp(else_expr, ctx)
+        }
+
+        // Postfix ++/--: operand must be an lvalue
+        Expr::PostfixIncrement(inner) | Expr::PostfixDecrement(inner) => {
+            if !matches!(inner.as_ref(), Expr::Variable(_)) {
+                return Err("Invalid lvalue in postfix operation".to_string());
+            }
+            resolve_exp(inner, ctx)
         }
     }
 }

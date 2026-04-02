@@ -61,6 +61,9 @@ pub enum Expr {
     Unary(UnaryOperator, Box<Expr>),
     Binary(BinaryOperator, Box<Expr>, Box<Expr>),
 
+    PostfixIncrement(Box<Expr>),
+    PostfixDecrement(Box<Expr>),
+
     Assignment(Box<Expr>, Box<Expr>),
     Conditional(Box<Expr>, Box<Expr>, Box<Expr>),
 }
@@ -70,6 +73,8 @@ pub enum UnaryOperator {
     Negate,
     LogicalNot,
     Complement,
+    PrefixIncrement,
+    PrefixDecrement,
 }
 
 #[derive(Debug, Clone)]

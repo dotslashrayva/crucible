@@ -21,7 +21,7 @@ cargo build --release
 ```c
 int main(void) {
     int sum = 0;
-    for (int i = 1; i <= 10; i += 1) {
+    for (int i = 1; i <= 10; i++) {
         if (i % 2 == 0)
             continue;
         sum += i;
@@ -38,7 +38,7 @@ int main(void) {
     int n = 5;
     do {
         factorial *= n;
-        n -= 1;
+        n--;
     } while (n > 0);
 
     int result = ((sum + x) * 2 - factorial % 7) << 1;
@@ -66,6 +66,7 @@ int main(void) {
 $ crucible example.c
 $ ./example
 $ echo $?
+1
 ```
 
 Crucible handles:
@@ -73,6 +74,7 @@ Crucible handles:
 - Bitwise: `&` `|` `^` `~` `<<` `>>`
 - Logical: `&&` `||` `!` with short-circuit evaluation
 - Comparison: `==` `!=` `<` `<=` `>` `>=`
+- Increment/decrement: `++` `--` (prefix and postfix)
 - Compound assignment: `+=` `-=` `*=` `/=` `%=` `&=` `|=` `^=` `<<=` `>>=`
 - Control flow: `if`/`else`, ternary (`? :`), compound statements (`{ ... }`)
 - Loops: `while`, `do`/`while`, `for` with `break` and `continue`
@@ -181,11 +183,12 @@ This separation means the instruction selector never needs to reason about regis
 
 ## Roadmap
 
+- [x] Bitwise operators: `&` `|` `^` `~` `<<` `>>`
 - [x] Control flow: `if`/`else`, ternary
 - [x] Compound statements and block scoping
 - [x] Loops: `while`, `for`, `do`/`while`, `break`, `continue`
 - [x] Compound assignment: `+=`, `-=`, `*=`, etc.
-- [ ] Increment/decrement: `++`, `--`
+- [x] Increment/decrement: `++`, `--`
 - [ ] Labeled statements and `goto`
 - [ ] `switch`, `case`, `default`
 - [ ] Functions: declarations, calls, parameters

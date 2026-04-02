@@ -40,7 +40,7 @@ impl Parser {
         }
     }
 
-    // Relative Precedence Values
+    // Relative Precedence Values (if a Binary Operator)
     fn precedence(token: &Token) -> Option<u8> {
         match token {
             Token::Star | Token::Slash | Token::Percent => Some(50),
@@ -436,11 +436,11 @@ impl Parser {
         self.expect(Token::Question, "Expected '?'")?;
         let middle = self.parse_exp(0)?;
         self.expect(Token::Colon, "Expected ':'")?;
-        Ok(middle)
+        return Ok(middle);
     }
 
     fn parse_factor(&mut self) -> Result<Expr, String> {
-        match self.peek() {
+        let mut expr = match self.peek() {
             // Constant (Integer)
             Some(Token::Constant(value)) => {
                 let value = value.clone();
@@ -451,17 +451,30 @@ impl Parser {
                     Err(_) => return Err(format!("Invalid number: {}", value)),
                 };
 
-                return Ok(Expr::Constant(num));
+                Expr::Constant(num)
             }
 
             // Variable
             Some(Token::Identifier(name)) => {
                 let name = name.clone();
                 self.advance();
-                return Ok(Expr::Variable(name));
+                Expr::Variable(name)
             }
 
-            // Unary
+            // Parenthesized expression "(" <exp> ")"
+            Some(Token::OpenParen) => {
+                self.advance();
+                let inner_exp = self.parse_exp(0)?;
+
+                match self.advance() {
+                    Some(Token::CloseParen) => {}
+                    _ => return Err("Expected ')'".to_string()),
+                }
+
+                inner_exp
+            }
+
+            // Prefix Unary Operators
             Some(Token::Tilde) => {
                 self.advance();
                 let inner_exp = self.parse_factor()?;
@@ -480,21 +493,42 @@ impl Parser {
                 return Ok(Expr::Unary(UnaryOperator::LogicalNot, Box::new(inner_exp)));
             }
 
-            // Parenthesized expression "(" <exp> ")"
-            Some(Token::OpenParen) => {
+            Some(Token::PlusPlus) => {
                 self.advance();
-                let inner_exp = self.parse_exp(0)?;
-
-                // Expect closing parenthesis
-                match self.advance() {
-                    Some(Token::CloseParen) => {}
-                    _ => return Err("Expected ')'".to_string()),
-                }
-
-                return Ok(inner_exp);
+                let inner_exp = self.parse_factor()?;
+                return Ok(Expr::Unary(
+                    UnaryOperator::PrefixIncrement,
+                    Box::new(inner_exp),
+                ));
             }
 
-            _ => Err("Expected number, unary operator, or '('".to_string()),
+            Some(Token::MinusMinus) => {
+                self.advance();
+                let inner_exp = self.parse_factor()?;
+                return Ok(Expr::Unary(
+                    UnaryOperator::PrefixDecrement,
+                    Box::new(inner_exp),
+                ));
+            }
+
+            _ => return Err("Expected number, unary operator, or '('".to_string()),
+        };
+
+        // Postfix ++ and --
+        loop {
+            match self.peek() {
+                Some(Token::PlusPlus) => {
+                    self.advance();
+                    expr = Expr::PostfixIncrement(Box::new(expr));
+                }
+                Some(Token::MinusMinus) => {
+                    self.advance();
+                    expr = Expr::PostfixDecrement(Box::new(expr));
+                }
+                _ => break,
+            }
         }
+
+        return Ok(expr);
     }
 }

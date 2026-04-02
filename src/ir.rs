@@ -15,32 +15,39 @@ pub struct Function {
 #[derive(Debug)]
 pub enum Instruction {
     Return(Value),
+
     Unary {
         op: UnaryOperator,
         dst: String,
         src: Value,
     },
+
     Binary {
         op: BinaryOperator,
         dst: String,
         src1: Value,
         src2: Value,
     },
+
     Copy {
         src: Value,
         dst: String,
     },
+
     Jump {
         target: String,
     },
+
     JumpIfZero {
         condition: Value,
         target: String,
     },
+
     JumpIfNotZero {
         condition: Value,
         target: String,
     },
+
     Label(String),
 }
 

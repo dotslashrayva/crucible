@@ -45,6 +45,9 @@ impl Context {
             ast::UnaryOperator::Complement => ir::UnaryOperator::Complement,
             ast::UnaryOperator::Negate => ir::UnaryOperator::Negate,
             ast::UnaryOperator::LogicalNot => ir::UnaryOperator::Not,
+            ast::UnaryOperator::PrefixIncrement | ast::UnaryOperator::PrefixDecrement => {
+                unreachable!("Prefix ++/-- handled separately in flatten_expr")
+            }
         }
     }
 
@@ -285,6 +288,94 @@ fn flatten_statement(statement: ast::Statement, ctx: &mut Context) {
 fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> ir::Value {
     match expr {
         ast::Expr::Constant(val) => return ir::Value::Constant(val),
+
+        // Prefix ++x: increment, return new value
+        ast::Expr::Unary(ast::UnaryOperator::PrefixIncrement, inner) => {
+            let var = match *inner {
+                ast::Expr::Variable(name) => name,
+                _ => unreachable!(),
+            };
+
+            let dst = ctx.alloc_var();
+            ctx.append(ir::Instruction::Binary {
+                op: ir::BinaryOperator::Add,
+                src1: ir::Value::Variable(var.clone()),
+                src2: ir::Value::Constant(1),
+                dst: dst.clone(),
+            });
+            ctx.append(ir::Instruction::Copy {
+                src: ir::Value::Variable(dst.clone()),
+                dst: var,
+            });
+
+            ir::Value::Variable(dst)
+        }
+
+        // Prefix --x: decrement, return new value
+        ast::Expr::Unary(ast::UnaryOperator::PrefixDecrement, inner) => {
+            let var = match *inner {
+                ast::Expr::Variable(name) => name,
+                _ => unreachable!(),
+            };
+
+            let dst = ctx.alloc_var();
+            ctx.append(ir::Instruction::Binary {
+                op: ir::BinaryOperator::Subtract,
+                src1: ir::Value::Variable(var.clone()),
+                src2: ir::Value::Constant(1),
+                dst: dst.clone(),
+            });
+            ctx.append(ir::Instruction::Copy {
+                src: ir::Value::Variable(dst.clone()),
+                dst: var,
+            });
+
+            ir::Value::Variable(dst)
+        }
+
+        // Postfix x++: increment, return old value
+        ast::Expr::PostfixIncrement(inner) => {
+            let var = match *inner {
+                ast::Expr::Variable(name) => name,
+                _ => unreachable!(),
+            };
+
+            let old = ctx.alloc_var();
+            ctx.append(ir::Instruction::Copy {
+                src: ir::Value::Variable(var.clone()),
+                dst: old.clone(),
+            });
+            ctx.append(ir::Instruction::Binary {
+                op: ir::BinaryOperator::Add,
+                src1: ir::Value::Variable(var.clone()),
+                src2: ir::Value::Constant(1),
+                dst: var,
+            });
+
+            ir::Value::Variable(old)
+        }
+
+        // Postfix x--: decrement, return old value
+        ast::Expr::PostfixDecrement(inner) => {
+            let var = match *inner {
+                ast::Expr::Variable(name) => name,
+                _ => unreachable!(),
+            };
+
+            let old = ctx.alloc_var();
+            ctx.append(ir::Instruction::Copy {
+                src: ir::Value::Variable(var.clone()),
+                dst: old.clone(),
+            });
+            ctx.append(ir::Instruction::Binary {
+                op: ir::BinaryOperator::Subtract,
+                src1: ir::Value::Variable(var.clone()),
+                src2: ir::Value::Constant(1),
+                dst: var,
+            });
+
+            ir::Value::Variable(old)
+        }
 
         ast::Expr::Unary(op, inner) => {
             let src = flatten_expr(*inner, ctx);
