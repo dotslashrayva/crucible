@@ -8,6 +8,7 @@ mod asm;
 mod ast;
 mod codegen;
 mod emit;
+mod fixup;
 mod ir;
 mod irgen;
 mod lexer;
