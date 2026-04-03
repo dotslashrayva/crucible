@@ -1,4 +1,4 @@
-use crate::token::Token;
+use super::token::Token;
 use regex::Regex;
 
 pub fn lex(source: &str) -> Result<Vec<Token>, String> {

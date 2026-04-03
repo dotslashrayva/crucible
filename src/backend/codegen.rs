@@ -1,6 +1,6 @@
 use super::asm;
 use super::fixup;
-use crate::ir;
+use crate::frontend::ir;
 
 pub fn generate(ir_program: ir::Program) -> asm::Program {
     let function = generate_function(ir_program.function);

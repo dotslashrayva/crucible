@@ -1,5 +1,5 @@
-use crate::ast;
-use crate::ir::*;
+use super::ast;
+use super::ir::*;
 
 struct Context {
     instructions: Vec<Instruction>,

@@ -106,32 +106,34 @@ crucible -S program.c            # final assembly output
 
 ## Compilation Pipeline
 
-Each stage is a self-contained transformation with well-defined input/output boundaries. No stage knows about the internals of another. Data flows forward through the pipeline as distinct intermediate representations.
+The compiler is split into a target-independent *Frontend* and a target-dependent *Backend*. Each stage is a self-contained transformation with well-defined input/output boundaries. No stage knows about the internals of another. Data flows forward through the pipeline as distinct intermediate representations.
 
 | Stage | Module | Input / Output |
 |-------|--------|---------------|
-| Lexing | `lexer.rs` | Source -> `Vec<Token>` |
-| Parsing | `parser.rs` | Tokens -> AST |
-| Semantic Analysis | `resolve.rs` | AST -> AST (validated, variables renamed, labels resolved, loops labeled) |
-| IR Generation | `irgen.rs` | AST -> Three-Address Code |
-| Code Generation | `codegen.rs` | TAC -> x86-64 instructions |
-| Emission | `emit.rs` | Instructions -> Assembly text |
+| Lexing | `frontend/lexer.rs` | Source -> `Vec<Token>` |
+| Parsing | `frontend/parser.rs` | Tokens -> AST |
+| Semantic Analysis | `frontend/resolve.rs` | AST -> AST (validated, variables renamed, labels resolved, loops labeled) |
+| IR Generation | `frontend/irgen.rs` | AST -> Three-Address Code |
+| Code Generation | `backend/codegen.rs` | TAC -> x86-64 instructions |
+| Emission | `backend/emit.rs` | Instructions -> Assembly text |
 
 ## Architecture
 
 ```
 src/
-├── token.rs      # Token definitions
-├── lexer.rs      # Regex-based tokenizer
-├── ast.rs        # AST node types
-├── parser.rs     # Recursive descent + precedence climbing
-├── resolve.rs    # Variable resolution + loop labeling (semantic analysis)
-├── ir.rs         # Three-address code definitions
-├── irgen.rs      # AST -> TAC lowering
-├── asm.rs        # x86-64 instruction types
-├── codegen.rs    # Instruction selection + register fixups
-├── emit.rs       # Assembly text emission (Intel syntax)
-└── main.rs       # Driver
+├── frontend/             # Target-independent analysis & lowering
+│   ├── token.rs          # Token definitions
+│   ├── lexer.rs          # Regex-based tokenizer
+│   ├── ast.rs            # AST node types
+│   ├── parser.rs         # Recursive descent + precedence climbing
+│   ├── resolve.rs        # Variable resolution + loop labeling (semantic analysis)
+│   ├── ir.rs             # Three-address code definitions
+│   └── irgen.rs          # AST -> TAC lowering
+├── backend/              # Target-dependent x86-64 generation
+│   ├── asm.rs            # x86-64 instruction types
+│   ├── codegen.rs        # Instruction selection + register fixups
+│   └── emit.rs           # Assembly text emission (Intel syntax)
+└── main.rs               # Driver and pipeline coordinator
 ```
 
 ## Design

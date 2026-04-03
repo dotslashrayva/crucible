@@ -4,21 +4,16 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-mod ast;
 mod backend;
-mod ir;
-mod irgen;
-mod lexer;
-mod parser;
-mod resolve;
-mod token;
+mod frontend;
 
 use backend::codegen::generate;
 use backend::emit::emit;
-use irgen::flatten;
-use lexer::lex;
-use parser::parse;
-use resolve::resolve;
+
+use frontend::irgen::flatten;
+use frontend::lexer::lex;
+use frontend::parser::parse;
+use frontend::resolve::resolve;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().skip(1).collect();

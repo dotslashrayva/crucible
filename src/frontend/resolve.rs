@@ -1,4 +1,4 @@
-use crate::ast::*;
+use super::ast::*;
 use std::collections::HashMap;
 
 // Semantic Analysis Pass
