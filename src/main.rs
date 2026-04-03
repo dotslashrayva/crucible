@@ -7,27 +7,12 @@ use std::process::Command;
 mod backend;
 mod frontend;
 
-use backend::codegen::generate;
-use backend::emit::emit;
-
-use frontend::irgen::flatten;
-use frontend::lexer::lex;
-use frontend::parser::parse;
-use frontend::resolve::resolve;
-
-#[derive(Debug, PartialEq)]
-enum Stage {
-    Lex,
-    Parse,
-    Validate,
-    Ir,
-    Codegen,
-    Emit,
-    Full,
-}
+use backend::Target;
+use frontend::Stage;
 
 struct Config {
     target_stage: Stage,
+    target_arch: Target,
     input_path: PathBuf,
 }
 
@@ -35,6 +20,7 @@ impl Config {
     fn parse(mut args: impl Iterator<Item = String>) -> Result<Self, String> {
         let mut target_stage = Stage::Full;
         let mut input_path = None;
+        let mut target_arch = Target::Intel;
 
         while let Some(arg) = args.next() {
             match arg.as_str() {
@@ -44,6 +30,13 @@ impl Config {
                 "--tacky" | "--ir" => target_stage = Stage::Ir,
                 "--codegen" => target_stage = Stage::Codegen,
                 "-S" | "--emit" => target_stage = Stage::Emit,
+
+                "--target" => {
+                    let arch_str = args
+                        .next()
+                        .ok_or("Expected architecture name after --target")?;
+                    target_arch = arch_str.parse::<Target>()?;
+                }
 
                 // Catch unknown flags to prevent silent typos
                 flag if flag.starts_with('-') => return Err(format!("Unknown flag: {}", flag)),
@@ -64,6 +57,7 @@ impl Config {
 
         Ok(Config {
             target_stage,
+            target_arch,
             input_path,
         })
     }
@@ -90,47 +84,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let source = fs::read_to_string(&output)?;
     fs::remove_file(&output)?;
 
-    let tokens = lex(&source).map_err(|e| format!("Lexical error: {}", e))?;
-    if config.target_stage == Stage::Lex {
-        dbg!(tokens);
-        println!("Lexer OK!");
-        return Ok(());
-    }
+    let ir = match frontend::run_pipeline(&source, config.target_stage)? {
+        Some(ir) => ir,
+        None => return Ok(()), // Frontend stopped early (e.g., --lex or --parse)
+    };
 
-    let mut ast = parse(tokens).map_err(|e| format!("Syntax error: {}", e))?;
-    if config.target_stage == Stage::Parse {
-        dbg!(ast);
-        println!("Parser OK!");
-        return Ok(());
-    }
-
-    resolve(&mut ast).map_err(|e| format!("Semantic error: {}", e))?;
-    if config.target_stage == Stage::Validate {
-        dbg!(ast);
-        println!("Validation OK!");
-        return Ok(());
-    }
-
-    let ir = flatten(ast);
-    if config.target_stage == Stage::Ir {
-        dbg!(ir);
-        println!("IR OK!");
-        return Ok(());
-    }
-
-    let assembly = generate(ir);
-    if config.target_stage == Stage::Codegen {
-        dbg!(assembly);
-        println!("Code Generation OK!");
-        return Ok(());
-    }
-
-    let assembly_code = emit(assembly);
-    if config.target_stage == Stage::Emit {
-        println!("{}", assembly_code);
-        println!("Code Emission OK!");
-        return Ok(());
-    }
+    let assembly_code = match backend::compile(ir, config.target_arch, config.target_stage) {
+        Some(code) => code,
+        None => return Ok(()),
+    };
 
     // Save the Code and Invoke Assembler
     let asm_file = input.with_extension("s");
