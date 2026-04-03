@@ -1,5 +1,5 @@
-use crate::asm;
-use crate::fixup;
+use super::asm;
+use super::fixup;
 use crate::ir;
 
 pub fn generate(ir_program: ir::Program) -> asm::Program {

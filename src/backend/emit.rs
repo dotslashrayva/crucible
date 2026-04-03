@@ -1,4 +1,4 @@
-use crate::asm::*;
+use super::asm::*;
 use std::fmt::Write;
 
 pub fn emit(program: Program) -> String {

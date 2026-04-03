@@ -4,11 +4,8 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-mod asm;
 mod ast;
-mod codegen;
-mod emit;
-mod fixup;
+mod backend;
 mod ir;
 mod irgen;
 mod lexer;
@@ -16,8 +13,8 @@ mod parser;
 mod resolve;
 mod token;
 
-use codegen::generate;
-use emit::emit;
+use backend::codegen::generate;
+use backend::emit::emit;
 use irgen::flatten;
 use lexer::lex;
 use parser::parse;

@@ -1,4 +1,4 @@
-use crate::asm;
+use super::asm;
 use std::collections::HashMap;
 
 pub fn fixup(instructions: &mut Vec<asm::Instruction>) {
