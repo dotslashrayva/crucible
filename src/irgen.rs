@@ -1,8 +1,8 @@
 use crate::ast;
-use crate::ir;
+use crate::ir::*;
 
 struct Context {
-    instructions: Vec<ir::Instruction>,
+    instructions: Vec<Instruction>,
     var_count: u32,
     label_count: u32,
 }
@@ -28,7 +28,7 @@ impl Context {
         return name;
     }
 
-    fn append(&mut self, instr: ir::Instruction) {
+    fn append(&mut self, instr: Instruction) {
         self.instructions.push(instr);
     }
 
@@ -40,40 +40,40 @@ impl Context {
         format!("continue_{}", loop_label)
     }
 
-    fn convert_unary_op(op: &ast::UnaryOperator) -> ir::UnaryOperator {
+    fn convert_unary_op(op: &ast::UnaryOperator) -> UnaryOperator {
         match op {
-            ast::UnaryOperator::Complement => ir::UnaryOperator::Complement,
-            ast::UnaryOperator::Negate => ir::UnaryOperator::Negate,
-            ast::UnaryOperator::LogicalNot => ir::UnaryOperator::Not,
+            ast::UnaryOperator::Complement => UnaryOperator::Complement,
+            ast::UnaryOperator::Negate => UnaryOperator::Negate,
+            ast::UnaryOperator::LogicalNot => UnaryOperator::Not,
             ast::UnaryOperator::PrefixIncrement | ast::UnaryOperator::PrefixDecrement => {
                 unreachable!("Prefix ++/-- handled separately in flatten_expr")
             }
         }
     }
 
-    fn convert_binary_op(op: &ast::BinaryOperator) -> ir::BinaryOperator {
+    fn convert_binary_op(op: &ast::BinaryOperator) -> BinaryOperator {
         match op {
-            ast::BinaryOperator::Add => ir::BinaryOperator::Add,
-            ast::BinaryOperator::Subtract => ir::BinaryOperator::Subtract,
-            ast::BinaryOperator::Multiply => ir::BinaryOperator::Multiply,
-            ast::BinaryOperator::Divide => ir::BinaryOperator::Divide,
-            ast::BinaryOperator::Modulo => ir::BinaryOperator::Modulo,
+            ast::BinaryOperator::Add => BinaryOperator::Add,
+            ast::BinaryOperator::Subtract => BinaryOperator::Subtract,
+            ast::BinaryOperator::Multiply => BinaryOperator::Multiply,
+            ast::BinaryOperator::Divide => BinaryOperator::Divide,
+            ast::BinaryOperator::Modulo => BinaryOperator::Modulo,
 
-            ast::BinaryOperator::BitwiseAnd => ir::BinaryOperator::BitwiseAnd,
-            ast::BinaryOperator::BitwiseOr => ir::BinaryOperator::BitwiseOr,
-            ast::BinaryOperator::BitwiseXor => ir::BinaryOperator::BitwiseXor,
+            ast::BinaryOperator::BitwiseAnd => BinaryOperator::BitwiseAnd,
+            ast::BinaryOperator::BitwiseOr => BinaryOperator::BitwiseOr,
+            ast::BinaryOperator::BitwiseXor => BinaryOperator::BitwiseXor,
 
-            ast::BinaryOperator::LeftShift => ir::BinaryOperator::LeftShift,
-            ast::BinaryOperator::RightShift => ir::BinaryOperator::RightShift,
+            ast::BinaryOperator::LeftShift => BinaryOperator::LeftShift,
+            ast::BinaryOperator::RightShift => BinaryOperator::RightShift,
 
-            ast::BinaryOperator::Equal => ir::BinaryOperator::Equal,
-            ast::BinaryOperator::NotEqual => ir::BinaryOperator::NotEqual,
+            ast::BinaryOperator::Equal => BinaryOperator::Equal,
+            ast::BinaryOperator::NotEqual => BinaryOperator::NotEqual,
 
-            ast::BinaryOperator::LessThan => ir::BinaryOperator::LessThan,
-            ast::BinaryOperator::LessOrEqual => ir::BinaryOperator::LessOrEqual,
+            ast::BinaryOperator::LessThan => BinaryOperator::LessThan,
+            ast::BinaryOperator::LessOrEqual => BinaryOperator::LessOrEqual,
 
-            ast::BinaryOperator::GreaterThan => ir::BinaryOperator::GreaterThan,
-            ast::BinaryOperator::GreaterOrEqual => ir::BinaryOperator::GreaterOrEqual,
+            ast::BinaryOperator::GreaterThan => BinaryOperator::GreaterThan,
+            ast::BinaryOperator::GreaterOrEqual => BinaryOperator::GreaterOrEqual,
 
             ast::BinaryOperator::LogicalAnd => unreachable!(),
             ast::BinaryOperator::LogicalOr => unreachable!(),
@@ -82,21 +82,21 @@ impl Context {
 }
 
 // Main IR function
-pub fn flatten(ast_program: ast::Program) -> ir::Program {
+pub fn flatten(ast_program: ast::Program) -> Program {
     let function = flatten_function(ast_program.function);
-    return ir::Program { function };
+    return Program { function };
 }
 
-fn flatten_function(ast_func: ast::Function) -> ir::Function {
+fn flatten_function(ast_func: ast::Function) -> Function {
     let mut ctx = Context::new();
 
     flatten_block(ast_func.body, &mut ctx);
 
-    if !matches!(ctx.instructions.last(), Some(ir::Instruction::Return(_))) {
-        ctx.append(ir::Instruction::Return(ir::Value::Constant(0)));
+    if !matches!(ctx.instructions.last(), Some(Instruction::Return(_))) {
+        ctx.append(Instruction::Return(Value::Constant(0)));
     }
 
-    return ir::Function {
+    return Function {
         name: ast_func.name,
         body: ctx.instructions,
     };
@@ -118,7 +118,7 @@ fn flatten_block_item(item: ast::BlockItem, ctx: &mut Context) {
 fn flatten_declaration(decl: ast::Declaration, ctx: &mut Context) {
     if let Some(init) = decl.init {
         let val = flatten_expr(init, ctx);
-        ctx.append(ir::Instruction::Copy {
+        ctx.append(Instruction::Copy {
             src: val,
             dst: decl.name,
         });
@@ -139,7 +139,7 @@ fn flatten_statement(statement: ast::Statement, ctx: &mut Context) {
     match statement {
         ast::Statement::Return(expr) => {
             let result_val = flatten_expr(expr, ctx);
-            ctx.append(ir::Instruction::Return(result_val));
+            ctx.append(Instruction::Return(result_val));
         }
 
         ast::Statement::If(condition, then_stmt, else_stmt) => {
@@ -149,35 +149,35 @@ fn flatten_statement(statement: ast::Statement, ctx: &mut Context) {
                 None => {
                     let end_label = ctx.alloc_label("if_end");
 
-                    ctx.append(ir::Instruction::JumpIfZero {
+                    ctx.append(Instruction::JumpIfZero {
                         condition: cond_val,
                         target: end_label.clone(),
                     });
 
                     flatten_statement(*then_stmt, ctx);
 
-                    ctx.append(ir::Instruction::Label(end_label));
+                    ctx.append(Instruction::Label(end_label));
                 }
                 Some(else_stmt) => {
                     let else_label = ctx.alloc_label("if_else");
                     let end_label = ctx.alloc_label("if_end");
 
-                    ctx.append(ir::Instruction::JumpIfZero {
+                    ctx.append(Instruction::JumpIfZero {
                         condition: cond_val,
                         target: else_label.clone(),
                     });
 
                     flatten_statement(*then_stmt, ctx);
 
-                    ctx.append(ir::Instruction::Jump {
+                    ctx.append(Instruction::Jump {
                         target: end_label.clone(),
                     });
 
-                    ctx.append(ir::Instruction::Label(else_label));
+                    ctx.append(Instruction::Label(else_label));
 
                     flatten_statement(*else_stmt, ctx);
 
-                    ctx.append(ir::Instruction::Label(end_label));
+                    ctx.append(Instruction::Label(end_label));
                 }
             }
         }
@@ -192,14 +192,14 @@ fn flatten_statement(statement: ast::Statement, ctx: &mut Context) {
 
         // break label; -> Jump(break_<label>)
         ast::Statement::Break(label) => {
-            ctx.append(ir::Instruction::Jump {
+            ctx.append(Instruction::Jump {
                 target: Context::break_label(&label),
             });
         }
 
         // continue label; -> Jump(continue_<label>)
         ast::Statement::Continue(label) => {
-            ctx.append(ir::Instruction::Jump {
+            ctx.append(Instruction::Jump {
                 target: Context::continue_label(&label),
             });
         }
@@ -209,19 +209,19 @@ fn flatten_statement(statement: ast::Statement, ctx: &mut Context) {
             let cont_label = Context::continue_label(&label);
             let brk_label = Context::break_label(&label);
 
-            ctx.append(ir::Instruction::Label(cont_label.clone()));
+            ctx.append(Instruction::Label(cont_label.clone()));
 
             let cond_val = flatten_expr(condition, ctx);
-            ctx.append(ir::Instruction::JumpIfZero {
+            ctx.append(Instruction::JumpIfZero {
                 condition: cond_val,
                 target: brk_label.clone(),
             });
 
             flatten_statement(*body, ctx);
 
-            ctx.append(ir::Instruction::Jump { target: cont_label });
+            ctx.append(Instruction::Jump { target: cont_label });
 
-            ctx.append(ir::Instruction::Label(brk_label));
+            ctx.append(Instruction::Label(brk_label));
         }
 
         // Do-While loop:
@@ -230,19 +230,19 @@ fn flatten_statement(statement: ast::Statement, ctx: &mut Context) {
             let cont_label = Context::continue_label(&label);
             let brk_label = Context::break_label(&label);
 
-            ctx.append(ir::Instruction::Label(start_label.clone()));
+            ctx.append(Instruction::Label(start_label.clone()));
 
             flatten_statement(*body, ctx);
 
-            ctx.append(ir::Instruction::Label(cont_label));
+            ctx.append(Instruction::Label(cont_label));
 
             let cond_val = flatten_expr(condition, ctx);
-            ctx.append(ir::Instruction::JumpIfNotZero {
+            ctx.append(Instruction::JumpIfNotZero {
                 condition: cond_val,
                 target: start_label,
             });
 
-            ctx.append(ir::Instruction::Label(brk_label));
+            ctx.append(Instruction::Label(brk_label));
         }
 
         // For loop:
@@ -254,12 +254,12 @@ fn flatten_statement(statement: ast::Statement, ctx: &mut Context) {
             // Init clause
             flatten_for_init(init, ctx);
 
-            ctx.append(ir::Instruction::Label(start_label.clone()));
+            ctx.append(Instruction::Label(start_label.clone()));
 
             // Condition: if present, emit JumpIfZero; if absent, omit entirely
             if let Some(cond) = condition {
                 let cond_val = flatten_expr(cond, ctx);
-                ctx.append(ir::Instruction::JumpIfZero {
+                ctx.append(Instruction::JumpIfZero {
                     condition: cond_val,
                     target: brk_label.clone(),
                 });
@@ -267,27 +267,38 @@ fn flatten_statement(statement: ast::Statement, ctx: &mut Context) {
 
             flatten_statement(*body, ctx);
 
-            ctx.append(ir::Instruction::Label(cont_label));
+            ctx.append(Instruction::Label(cont_label));
 
             // Post expression
             if let Some(post_expr) = post {
                 flatten_expr(post_expr, ctx);
             }
 
-            ctx.append(ir::Instruction::Jump {
+            ctx.append(Instruction::Jump {
                 target: start_label,
             });
 
-            ctx.append(ir::Instruction::Label(brk_label));
+            ctx.append(Instruction::Label(brk_label));
+        }
+
+        // Goto: emit a jump to the (already-resolved) label
+        ast::Statement::Goto(label) => {
+            ctx.append(Instruction::Jump { target: label });
+        }
+
+        // Labeled statement: emit the label, then flatten the inner statement
+        ast::Statement::Labeled(name, inner) => {
+            ctx.append(Instruction::Label(name));
+            flatten_statement(*inner, ctx);
         }
 
         ast::Statement::Null => {}
     }
 }
 
-fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> ir::Value {
+fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> Value {
     match expr {
-        ast::Expr::Constant(val) => return ir::Value::Constant(val),
+        ast::Expr::Constant(val) => return Value::Constant(val),
 
         // Prefix ++x: increment, return new value
         ast::Expr::Unary(ast::UnaryOperator::PrefixIncrement, inner) => {
@@ -297,18 +308,18 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> ir::Value {
             };
 
             let dst = ctx.alloc_var();
-            ctx.append(ir::Instruction::Binary {
-                op: ir::BinaryOperator::Add,
-                src1: ir::Value::Variable(var.clone()),
-                src2: ir::Value::Constant(1),
+            ctx.append(Instruction::Binary {
+                op: BinaryOperator::Add,
+                src1: Value::Variable(var.clone()),
+                src2: Value::Constant(1),
                 dst: dst.clone(),
             });
-            ctx.append(ir::Instruction::Copy {
-                src: ir::Value::Variable(dst.clone()),
+            ctx.append(Instruction::Copy {
+                src: Value::Variable(dst.clone()),
                 dst: var,
             });
 
-            ir::Value::Variable(dst)
+            Value::Variable(dst)
         }
 
         // Prefix --x: decrement, return new value
@@ -319,18 +330,18 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> ir::Value {
             };
 
             let dst = ctx.alloc_var();
-            ctx.append(ir::Instruction::Binary {
-                op: ir::BinaryOperator::Subtract,
-                src1: ir::Value::Variable(var.clone()),
-                src2: ir::Value::Constant(1),
+            ctx.append(Instruction::Binary {
+                op: BinaryOperator::Subtract,
+                src1: Value::Variable(var.clone()),
+                src2: Value::Constant(1),
                 dst: dst.clone(),
             });
-            ctx.append(ir::Instruction::Copy {
-                src: ir::Value::Variable(dst.clone()),
+            ctx.append(Instruction::Copy {
+                src: Value::Variable(dst.clone()),
                 dst: var,
             });
 
-            ir::Value::Variable(dst)
+            Value::Variable(dst)
         }
 
         // Postfix x++: increment, return old value
@@ -341,18 +352,18 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> ir::Value {
             };
 
             let old = ctx.alloc_var();
-            ctx.append(ir::Instruction::Copy {
-                src: ir::Value::Variable(var.clone()),
+            ctx.append(Instruction::Copy {
+                src: Value::Variable(var.clone()),
                 dst: old.clone(),
             });
-            ctx.append(ir::Instruction::Binary {
-                op: ir::BinaryOperator::Add,
-                src1: ir::Value::Variable(var.clone()),
-                src2: ir::Value::Constant(1),
+            ctx.append(Instruction::Binary {
+                op: BinaryOperator::Add,
+                src1: Value::Variable(var.clone()),
+                src2: Value::Constant(1),
                 dst: var,
             });
 
-            ir::Value::Variable(old)
+            Value::Variable(old)
         }
 
         // Postfix x--: decrement, return old value
@@ -363,31 +374,31 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> ir::Value {
             };
 
             let old = ctx.alloc_var();
-            ctx.append(ir::Instruction::Copy {
-                src: ir::Value::Variable(var.clone()),
+            ctx.append(Instruction::Copy {
+                src: Value::Variable(var.clone()),
                 dst: old.clone(),
             });
-            ctx.append(ir::Instruction::Binary {
-                op: ir::BinaryOperator::Subtract,
-                src1: ir::Value::Variable(var.clone()),
-                src2: ir::Value::Constant(1),
+            ctx.append(Instruction::Binary {
+                op: BinaryOperator::Subtract,
+                src1: Value::Variable(var.clone()),
+                src2: Value::Constant(1),
                 dst: var,
             });
 
-            ir::Value::Variable(old)
+            Value::Variable(old)
         }
 
         ast::Expr::Unary(op, inner) => {
             let src = flatten_expr(*inner, ctx);
             let dst = ctx.alloc_var();
 
-            ctx.append(ir::Instruction::Unary {
+            ctx.append(Instruction::Unary {
                 op: Context::convert_unary_op(&op),
                 dst: dst.clone(),
                 src: src,
             });
 
-            return ir::Value::Variable(dst);
+            return Value::Variable(dst);
         }
 
         ast::Expr::Binary(op, left, right) => {
@@ -405,7 +416,7 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> ir::Value {
                     let v1 = flatten_expr(*left, ctx);
 
                     // If left is false (0), jump to false_label
-                    ctx.append(ir::Instruction::JumpIfZero {
+                    ctx.append(Instruction::JumpIfZero {
                         condition: v1,
                         target: false_label.clone(),
                     });
@@ -415,33 +426,33 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> ir::Value {
 
                     // Convert right to boolean (0 or 1)
                     let right_bool = ctx.alloc_var();
-                    ctx.append(ir::Instruction::Binary {
-                        op: ir::BinaryOperator::NotEqual,
+                    ctx.append(Instruction::Binary {
+                        op: BinaryOperator::NotEqual,
                         src1: v2,
-                        src2: ir::Value::Constant(0),
+                        src2: Value::Constant(0),
                         dst: right_bool.clone(),
                     });
 
                     // Store result and jump to end
-                    ctx.append(ir::Instruction::Copy {
-                        src: ir::Value::Variable(right_bool),
+                    ctx.append(Instruction::Copy {
+                        src: Value::Variable(right_bool),
                         dst: result.clone(),
                     });
-                    ctx.append(ir::Instruction::Jump {
+                    ctx.append(Instruction::Jump {
                         target: end_label.clone(),
                     });
 
                     // False label: set result to 0
-                    ctx.append(ir::Instruction::Label(false_label));
-                    ctx.append(ir::Instruction::Copy {
-                        src: ir::Value::Constant(0),
+                    ctx.append(Instruction::Label(false_label));
+                    ctx.append(Instruction::Copy {
+                        src: Value::Constant(0),
                         dst: result.clone(),
                     });
 
                     // End label
-                    ctx.append(ir::Instruction::Label(end_label));
+                    ctx.append(Instruction::Label(end_label));
 
-                    return ir::Value::Variable(result);
+                    return Value::Variable(result);
                 }
 
                 ast::BinaryOperator::LogicalOr => {
@@ -457,7 +468,7 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> ir::Value {
                     let v1 = flatten_expr(*left, ctx);
 
                     // If left is true (non-zero), jump to true_label
-                    ctx.append(ir::Instruction::JumpIfNotZero {
+                    ctx.append(Instruction::JumpIfNotZero {
                         condition: v1,
                         target: true_label.clone(),
                     });
@@ -467,33 +478,33 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> ir::Value {
 
                     // Convert right to boolean (0 or 1)
                     let right_bool = ctx.alloc_var();
-                    ctx.append(ir::Instruction::Binary {
-                        op: ir::BinaryOperator::NotEqual,
+                    ctx.append(Instruction::Binary {
+                        op: BinaryOperator::NotEqual,
                         src1: v2,
-                        src2: ir::Value::Constant(0),
+                        src2: Value::Constant(0),
                         dst: right_bool.clone(),
                     });
 
                     // Store result and jump to end
-                    ctx.append(ir::Instruction::Copy {
-                        src: ir::Value::Variable(right_bool),
+                    ctx.append(Instruction::Copy {
+                        src: Value::Variable(right_bool),
                         dst: result.clone(),
                     });
-                    ctx.append(ir::Instruction::Jump {
+                    ctx.append(Instruction::Jump {
                         target: end_label.clone(),
                     });
 
                     // True label: set result to 1
-                    ctx.append(ir::Instruction::Label(true_label));
-                    ctx.append(ir::Instruction::Copy {
-                        src: ir::Value::Constant(1),
+                    ctx.append(Instruction::Label(true_label));
+                    ctx.append(Instruction::Copy {
+                        src: Value::Constant(1),
                         dst: result.clone(),
                     });
 
                     // End label
-                    ctx.append(ir::Instruction::Label(end_label));
+                    ctx.append(Instruction::Label(end_label));
 
-                    return ir::Value::Variable(result);
+                    return Value::Variable(result);
                 }
 
                 _ => {
@@ -501,19 +512,19 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> ir::Value {
                     let v2 = flatten_expr(*right, ctx);
                     let dst = ctx.alloc_var();
 
-                    ctx.append(ir::Instruction::Binary {
+                    ctx.append(Instruction::Binary {
                         op: Context::convert_binary_op(&op),
                         src1: v1,
                         src2: v2,
                         dst: dst.clone(),
                     });
 
-                    return ir::Value::Variable(dst);
+                    return Value::Variable(dst);
                 }
             }
         }
 
-        ast::Expr::Variable(name) => ir::Value::Variable(name),
+        ast::Expr::Variable(name) => Value::Variable(name),
 
         ast::Expr::Conditional(condition, then_expr, else_expr) => {
             let result = ctx.alloc_var();
@@ -522,31 +533,31 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> ir::Value {
 
             let cond_val = flatten_expr(*condition, ctx);
 
-            ctx.append(ir::Instruction::JumpIfZero {
+            ctx.append(Instruction::JumpIfZero {
                 condition: cond_val,
                 target: else_label.clone(),
             });
 
             let v1 = flatten_expr(*then_expr, ctx);
-            ctx.append(ir::Instruction::Copy {
+            ctx.append(Instruction::Copy {
                 src: v1,
                 dst: result.clone(),
             });
-            ctx.append(ir::Instruction::Jump {
+            ctx.append(Instruction::Jump {
                 target: end_label.clone(),
             });
 
-            ctx.append(ir::Instruction::Label(else_label));
+            ctx.append(Instruction::Label(else_label));
 
             let v2 = flatten_expr(*else_expr, ctx);
-            ctx.append(ir::Instruction::Copy {
+            ctx.append(Instruction::Copy {
                 src: v2,
                 dst: result.clone(),
             });
 
-            ctx.append(ir::Instruction::Label(end_label));
+            ctx.append(Instruction::Label(end_label));
 
-            return ir::Value::Variable(result);
+            return Value::Variable(result);
         }
 
         ast::Expr::Assignment(left, right) => {
@@ -557,12 +568,12 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> ir::Value {
 
             let val = flatten_expr(*right, ctx);
 
-            ctx.append(ir::Instruction::Copy {
+            ctx.append(Instruction::Copy {
                 src: val,
                 dst: dst.clone(),
             });
 
-            return ir::Value::Variable(dst);
+            return Value::Variable(dst);
         }
 
         ast::Expr::CompoundAssignment(left, op, right) => {
@@ -575,19 +586,19 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> ir::Value {
 
             let tmp = ctx.alloc_var();
 
-            ctx.append(ir::Instruction::Binary {
+            ctx.append(Instruction::Binary {
                 op: Context::convert_binary_op(&op),
-                src1: ir::Value::Variable(var.clone()),
+                src1: Value::Variable(var.clone()),
                 src2: rhs_val,
                 dst: tmp.clone(),
             });
 
-            ctx.append(ir::Instruction::Copy {
-                src: ir::Value::Variable(tmp.clone()),
+            ctx.append(Instruction::Copy {
+                src: Value::Variable(tmp.clone()),
                 dst: var.clone(),
             });
 
-            ir::Value::Variable(tmp)
+            Value::Variable(tmp)
         }
     }
 }

@@ -44,6 +44,9 @@ pub enum Statement {
     DoWhile(Box<Statement>, Expr, String),
     For(ForInit, Option<Expr>, Option<Expr>, Box<Statement>, String),
 
+    Goto(String),
+    Labeled(String, Box<Statement>),
+
     Null,
 }
 

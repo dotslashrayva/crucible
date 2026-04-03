@@ -5,6 +5,7 @@ use std::collections::HashMap;
 // Context struct carries all the state we need during the walk
 struct Context {
     scopes: Vec<HashMap<String, MapEntry>>,
+    labels: HashMap<String, String>,
     var_counter: usize,
     label_counter: usize,
 }
@@ -19,6 +20,7 @@ impl Context {
     fn new() -> Self {
         Self {
             scopes: vec![HashMap::new()],
+            labels: HashMap::new(),
             var_counter: 0,
             label_counter: 0,
         }
@@ -32,8 +34,15 @@ impl Context {
     }
 
     // Generate a unique loop label
-    fn make_label(&mut self) -> String {
+    fn make_loop_label(&mut self) -> String {
         let label = format!("loop.{}", self.label_counter);
+        self.label_counter += 1;
+        label
+    }
+
+    // Generate a unique label for labeled statements
+    fn make_unique_label(&mut self, name: &str) -> String {
+        let label = format!("label.{}.{}", name, self.label_counter);
         self.label_counter += 1;
         label
     }
@@ -85,6 +94,7 @@ pub fn resolve(program: &mut Program) -> Result<(), String> {
 
 // Functions & Blocks
 fn resolve_function(func: &mut Function, ctx: &mut Context) -> Result<(), String> {
+    collect_labels(&func.body, ctx)?;
     resolve_block(&mut func.body, ctx, &None)
 }
 
@@ -188,7 +198,7 @@ fn resolve_statement(
 
         // While loop: generate a label, resolve cond + body
         Statement::While(condition, body, label) => {
-            let new_label = ctx.make_label();
+            let new_label = ctx.make_loop_label();
 
             resolve_exp(condition, ctx)?;
             resolve_statement(body, ctx, &Some(new_label.clone()))?;
@@ -199,7 +209,7 @@ fn resolve_statement(
 
         // Do-While: same idea, body comes before condition
         Statement::DoWhile(body, condition, label) => {
-            let new_label = ctx.make_label();
+            let new_label = ctx.make_loop_label();
 
             resolve_statement(body, ctx, &Some(new_label.clone()))?;
             resolve_exp(condition, ctx)?;
@@ -210,7 +220,7 @@ fn resolve_statement(
 
         // For loop: new scope (for the loop variable) + new label
         Statement::For(init, condition, post, body, label) => {
-            let new_label = ctx.make_label();
+            let new_label = ctx.make_loop_label();
 
             // The for-loop header introduces its own scope that
             // they doesn't leak outside the loop.
@@ -225,6 +235,22 @@ fn resolve_statement(
 
             *label = new_label;
             Ok(())
+        }
+
+        // Goto <label>
+        Statement::Goto(label) => match ctx.labels.get(label) {
+            Some(unique) => {
+                *label = unique.clone();
+                Ok(())
+            }
+            None => Err(format!("Undefined label: '{}'", label)),
+        },
+
+        // <label>
+        Statement::Labeled(name, inner) => {
+            let unique = ctx.labels.get(name).unwrap().clone();
+            *name = unique;
+            resolve_statement(inner, ctx, current_label)
         }
     }
 }
@@ -311,5 +337,47 @@ fn resolve_exp(expr: &mut Expr, ctx: &mut Context) -> Result<(), String> {
             }
             resolve_exp(inner, ctx)
         }
+    }
+}
+
+fn collect_labels(block: &Block, ctx: &mut Context) -> Result<(), String> {
+    for item in &block.items {
+        collect_labels_in_block_item(item, ctx)?;
+    }
+    Ok(())
+}
+
+fn collect_labels_in_block_item(item: &BlockItem, ctx: &mut Context) -> Result<(), String> {
+    match item {
+        BlockItem::Statement(stmt) => collect_labels_in_stmt(stmt, ctx),
+        BlockItem::Declaration(_) => Ok(()),
+    }
+}
+
+fn collect_labels_in_stmt(stmt: &Statement, ctx: &mut Context) -> Result<(), String> {
+    match stmt {
+        Statement::Labeled(name, inner) => {
+            if ctx.labels.contains_key(name) {
+                return Err(format!("Duplicate label: '{}'", name));
+            }
+            let unique = ctx.make_unique_label(name);
+            ctx.labels.insert(name.clone(), unique);
+            collect_labels_in_stmt(inner, ctx)
+        }
+
+        // Recurse into anything that can contain statements
+        Statement::If(_, then_s, else_s) => {
+            collect_labels_in_stmt(then_s, ctx)?;
+            if let Some(e) = else_s {
+                collect_labels_in_stmt(e, ctx)?;
+            }
+            Ok(())
+        }
+
+        Statement::Compound(block) => collect_labels(block, ctx),
+        Statement::While(_, body, _) => collect_labels_in_stmt(body, ctx),
+        Statement::DoWhile(body, _, _) => collect_labels_in_stmt(body, ctx),
+        Statement::For(_, _, _, body, _) => collect_labels_in_stmt(body, ctx),
+        _ => Ok(()),
     }
 }

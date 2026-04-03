@@ -193,11 +193,26 @@ impl Parser {
             Token::While => self.parse_while(),
             Token::Do => self.parse_do_while(),
             Token::For => self.parse_for(),
+            Token::Goto => self.parse_goto(),
             Token::Semicolon => {
                 self.advance();
                 Ok(Statement::Null)
             }
             _ => {
+                // Check for labeled statement: <identifier> ":"
+                if let Token::Identifier(name) = self.peek() {
+                    if self.tokens.get(self.current + 1) == Some(&Token::Colon) {
+                        let name = name.clone();
+
+                        self.advance();
+                        self.advance();
+
+                        let stmt = self.parse_statement()?;
+                        return Ok(Statement::Labeled(name, Box::new(stmt)));
+                    }
+                }
+
+                // Otherwise it's an expression statement
                 let exp = self.parse_exp(0)?;
                 self.expect(Token::Semicolon, "Expected ';'")?;
                 Ok(Statement::Expression(exp))
@@ -331,6 +346,14 @@ impl Parser {
                 Ok(ForInit::InitExpr(Some(exp)))
             }
         }
+    }
+
+    // "goto" <identifier> ";"
+    fn parse_goto(&mut self) -> Result<Statement, String> {
+        self.advance();
+        let label = self.expect_identifier("Expected label name after 'goto'")?;
+        self.expect(Token::Semicolon, "Expected ';'")?;
+        Ok(Statement::Goto(label))
     }
 
     fn parse_exp(&mut self, min_prec: u8) -> Result<Expr, String> {

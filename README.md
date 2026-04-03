@@ -5,7 +5,7 @@ A C compiler, handwritten in Rust.
 Crucible compiles a subset of C down to x86-64 assembly (Intel syntax), performing lexical analysis, parsing, semantic analysis, IR generation, and code generation. No LLVM, no parser generators, no shortcuts.
 
 ```
-source.c -> Lexer -> Parser -> Resolver -> Loop Labeler -> IR Gen -> CodeGen -> Emitter -> x86-64 assembly
+source.c -> Lexer -> Parser -> Resolver -> IR Gen -> CodeGen -> Emitter -> x86-64 assembly
 ```
 
 ## Quick Start
@@ -58,6 +58,12 @@ int main(void) {
         result = x > 50 ? 1 : 0;
     }
 
+    if (result == 0)
+        goto fixup;
+    return result;
+
+fixup:
+    result = 42;
     return result;
 }
 ```
@@ -78,6 +84,7 @@ Crucible handles:
 - Compound assignment: `+=` `-=` `*=` `/=` `%=` `&=` `|=` `^=` `<<=` `>>=`
 - Control flow: `if`/`else`, ternary (`? :`), compound statements (`{ ... }`)
 - Loops: `while`, `do`/`while`, `for` with `break` and `continue`
+- Labeled statements and `goto`
 - Block scoping: nested scopes with variable shadowing (including `for` loop headers)
 - Local variables with declarations, assignments, and chained assignment (`a = b = 5`)
 - Operator precedence and associativity (17 levels, parsed via precedence climbing)
@@ -105,7 +112,7 @@ Each stage is a self-contained transformation with well-defined input/output bou
 |-------|--------|---------------|
 | Lexing | `lexer.rs` | Source -> `Vec<Token>` |
 | Parsing | `parser.rs` | Tokens -> AST |
-| Semantic Analysis | `resolve.rs` | AST -> AST (validated, variables renamed, loops labeled) |
+| Semantic Analysis | `resolve.rs` | AST -> AST (validated, variables renamed, labels resolved, loops labeled) |
 | IR Generation | `irgen.rs` | AST -> Three-Address Code |
 | Code Generation | `codegen.rs` | TAC -> x86-64 instructions |
 | Emission | `emit.rs` | Instructions -> Assembly text |
@@ -133,9 +140,11 @@ src/
 
 The parser uses recursive descent for statements and declarations, and switches to **precedence climbing** for expressions. A single `parse_exp(min_prec)` function handles all 17 precedence levels and both associativity directions through a tight loop. No grammar duplication, no per-level functions, and trivially extensible when new operators are added. Assignment and conditional expressions (`? :`) are treated as right-associative special cases within the precedence climber — assignment produces an `Assignment` node, and the ternary produces a `Conditional` node, while all other operators flow through the standard binary path. Compound assignments (`+=`, `-=`, etc.) are **desugared in the parser** into plain assignments (`a += b` becomes `a = a + b`), keeping the AST, IR, and codegen unchanged.
 
+Labeled statements (`label: <statement>`) are disambiguated from expression statements by peeking one token ahead when an identifier is encountered, if the next token is `:`, the parser commits to a labeled statement; otherwise it falls through to expression parsing. `goto` is parsed as a simple keyword-identifier-semicolon production.
+
 ### Semantic Analysis
 
-Semantic analysis runs as **two separate AST-to-AST passes**, each traversing the entire program independently.
+Semantic analysis runs as a **single resolver pass** over the AST, handling three concerns in one traversal (with a label collection pre-pass).
 
 **Pass 1: Variable Resolution.** Every variable is renamed with a unique identifier (`x` -> `x.0`, `y` -> `y.1`), eliminating name collisions between user-defined variables and compiler-generated temporaries in all subsequent stages.
 
@@ -146,7 +155,9 @@ The resolver enforces three invariants:
 
 Block scoping is implemented by maintaining a variable map that tracks both the unique name and whether each entry was declared in the current block. When entering a compound statement or `for` loop header, the map is copied with all "declared in current block" flags reset to false. This allows inner scopes to shadow outer variables without triggering the duplicate declaration check, while still catching true duplicates within the same scope. On exit, the original map is restored so inner declarations don't leak into the outer scope. The `for` loop header gets its own scope so a declaration like `for (int i = 0; ...)` is visible throughout the loop but not after it.
 
-**Pass 2: Loop Labeling.** Every loop statement (`while`, `do`/`while`, `for`) is assigned a unique ID, and every `break` and `continue` statement is annotated with the ID of its enclosing loop. The current loop label is threaded through the AST traversal; when it's absent and a `break` or `continue` is encountered, the compiler emits an error. This decouples loop validation from both parsing and IR generation, the parser doesn't need to track loop nesting, and the IR generator can unconditionally emit jumps to deterministic label names derived from these IDs.
+**Pass 2: Label Resolution.** All user-defined labels are collected in a pre-pass over the function body before the main resolution walk. Labels have **function scope** in C, a `goto` can jump forward to a label that hasn't been seen yet, so the resolver must know every label in the function before it can validate `goto` targets. The pre-pass walks the AST to find every `Labeled` statement, checks for duplicates, and assigns each label a unique name (e.g., `start` -> `label.start.0`). During the main resolve pass, each `goto` is validated against the collected label map and rewritten to use the unique name.
+
+**Pass 3: Loop Labeling.** Every loop statement (`while`, `do`/`while`, `for`) is assigned a unique ID, and every `break` and `continue` statement is annotated with the ID of its enclosing loop. The current loop label is threaded through the AST traversal; when it's absent and a `break` or `continue` is encountered, the compiler emits an error. This decouples loop validation from both parsing and IR generation, the parser doesn't need to track loop nesting, and the IR generator can unconditionally emit jumps to deterministic label names derived from these IDs.
 
 ### IR Lowering
 
@@ -162,6 +173,8 @@ Short-circuit evaluation for `&&` and `||` is lowered here through **control flo
 - **`for`**: init clause, then the `while` pattern with a post-expression inserted between the body and the back-jump
 
 Each loop emits two well-known labels derived from its unique ID: a **continue label** (jump target for `continue`, placed where execution should resume) and a **break label** (jump target for `break`, placed after the loop). `break` and `continue` statements compile to a single `Jump` instruction targeting the appropriate label. When a `for` loop's condition is absent, the conditional exit jump is omitted entirely rather than emitting a trivially-true check, producing tighter IR.
+
+**`goto` and labeled statements** lower trivially: a `goto` becomes a `Jump` to the label's unique name, and a labeled statement becomes a `Label` instruction followed by the inner statement's IR. Since label names were already made unique during semantic analysis, no further work is needed at the IR level.
 
 ### Code Generation
 
@@ -189,7 +202,7 @@ This separation means the instruction selector never needs to reason about regis
 - [x] Loops: `while`, `for`, `do`/`while`, `break`, `continue`
 - [x] Compound assignment: `+=`, `-=`, `*=`, etc.
 - [x] Increment/decrement: `++`, `--`
-- [ ] Labeled statements and `goto`
+- [x] Labeled statements and `goto`
 - [ ] `switch`, `case`, `default`
 - [ ] Functions: declarations, calls, parameters
 - [ ] Pointers and arrays
