@@ -1,7 +1,7 @@
 use std::env;
 use std::error::Error;
 use std::fs;
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::Command;
 
 mod backend;
@@ -15,63 +15,37 @@ use frontend::lexer::lex;
 use frontend::parser::parse;
 use frontend::resolve::resolve;
 
-#[derive(Debug, PartialEq)]
-enum Stage {
-    Lex,
-    Parse,
-    Validate,
-    Ir,
-    Codegen,
-    Emit,
-    Full,
-}
-
-struct Config {
-    target_stage: Stage,
-    input_path: PathBuf,
-}
-
-impl Config {
-    fn parse(mut args: impl Iterator<Item = String>) -> Result<Self, String> {
-        let mut target_stage = Stage::Full;
-        let mut input_path = None;
-
-        while let Some(arg) = args.next() {
-            match arg.as_str() {
-                "--lex" => target_stage = Stage::Lex,
-                "--parse" => target_stage = Stage::Parse,
-                "--validate" => target_stage = Stage::Validate,
-                "--tacky" | "--ir" => target_stage = Stage::Ir,
-                "--codegen" => target_stage = Stage::Codegen,
-                "-S" | "--emit" => target_stage = Stage::Emit,
-
-                // Catch unknown flags to prevent silent typos
-                flag if flag.starts_with('-') => return Err(format!("Unknown flag: {}", flag)),
-
-                // Anything else is treated as our input file
-                file => {
-                    if input_path.is_some() {
-                        return Err("Multiple input files are not yet supported.".to_string());
-                    }
-                    input_path = Some(PathBuf::from(file));
-                }
-            }
-        }
-
-        let input_path = input_path.ok_or_else(|| {
-            "Usage: crucible <flag> <source.c>\nFlags: [--lex | --parse | --validate | --ir | --codegen | --emit]".to_string()
-        })?;
-
-        Ok(Config {
-            target_stage,
-            input_path,
-        })
-    }
-}
-
 fn main() -> Result<(), Box<dyn Error>> {
-    let config = Config::parse(env::args().skip(1))?;
-    let input = config.input_path;
+    let args: Vec<String> = env::args().skip(1).collect();
+
+    if args.is_empty() {
+        eprintln!("Usage: crucible <flag> <source.c>");
+        eprintln!("Flags: [--lex OR --parse OR --codegen]");
+        return Err("no arguments provided".into());
+    }
+
+    let mut stop_after_lex: bool = false;
+    let mut stop_after_parse: bool = false;
+    let mut stop_after_validate: bool = false;
+    let mut stop_after_ir: bool = false;
+    let mut stop_after_codegen: bool = false;
+    let mut stop_after_emit: bool = false;
+
+    let mut input_path: String = String::new();
+
+    for arg in &args {
+        match arg.as_str() {
+            "--lex" => stop_after_lex = true,
+            "--parse" => stop_after_parse = true,
+            "--validate" => stop_after_validate = true,
+            "--tacky" | "--ir" => stop_after_ir = true,
+            "--codegen" => stop_after_codegen = true,
+            "-S" | "--emit" => stop_after_emit = true,
+            _ => input_path = arg.to_string(),
+        }
+    }
+
+    let input = Path::new(&input_path);
     let output = input.with_extension("i");
 
     let prep_status = Command::new("clang")
@@ -90,43 +64,57 @@ fn main() -> Result<(), Box<dyn Error>> {
     let source = fs::read_to_string(&output)?;
     fs::remove_file(&output)?;
 
-    let tokens = lex(&source).map_err(|e| format!("Lexical error: {}", e))?;
-    if config.target_stage == Stage::Lex {
+    let tokens = match lex(&source) {
+        Ok(tokens) => tokens,
+        Err(e) => return Err(format!("Lexical error: {}", e).into()),
+    };
+
+    if stop_after_lex {
         dbg!(tokens);
         println!("Lexer OK!");
         return Ok(());
     }
 
-    let mut ast = parse(tokens).map_err(|e| format!("Syntax error: {}", e))?;
-    if config.target_stage == Stage::Parse {
+    let mut ast = match parse(tokens) {
+        Ok(ast) => ast,
+        Err(e) => return Err(format!("Syntax error: {}", e).into()),
+    };
+
+    if stop_after_parse {
         dbg!(ast);
         println!("Parser OK!");
         return Ok(());
     }
 
-    resolve(&mut ast).map_err(|e| format!("Semantic error: {}", e))?;
-    if config.target_stage == Stage::Validate {
+    if let Err(e) = resolve(&mut ast) {
+        return Err(format!("Semantic error: {}", e).into());
+    }
+
+    if stop_after_validate {
         dbg!(ast);
         println!("Validation OK!");
         return Ok(());
     }
 
     let ir = flatten(ast);
-    if config.target_stage == Stage::Ir {
+
+    if stop_after_ir {
         dbg!(ir);
         println!("IR OK!");
         return Ok(());
     }
 
     let assembly = generate(ir);
-    if config.target_stage == Stage::Codegen {
+
+    if stop_after_codegen {
         dbg!(assembly);
         println!("Code Generation OK!");
         return Ok(());
     }
 
     let assembly_code = emit(assembly);
-    if config.target_stage == Stage::Emit {
+
+    if stop_after_emit {
         println!("{}", assembly_code);
         println!("Code Emission OK!");
         return Ok(());
