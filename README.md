@@ -4,10 +4,6 @@ A C compiler, handwritten in Rust.
 
 Crucible compiles a subset of C down to x86-64 assembly (Intel syntax), performing lexical analysis, parsing, semantic analysis, IR generation, and code generation. No LLVM, no parser generators, no shortcuts.
 
-```
-source.c -> Lexer -> Parser -> Resolver -> IR Gen -> CodeGen -> Emitter -> x86-64 assembly
-```
-
 ## Quick Start
 
 ```bash
