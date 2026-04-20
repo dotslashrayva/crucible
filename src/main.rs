@@ -7,16 +7,8 @@ use std::process::Command;
 mod backend;
 mod frontend;
 
-use backend::codegen::generate;
-use backend::emit::emit;
-
-use frontend::irgen::flatten;
-use frontend::lexer::lex;
-use frontend::parser::parse;
-use frontend::semantic::analyze;
-
-#[derive(Debug, PartialEq)]
-enum Stage {
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Stage {
     Lex,
     Parse,
     Validate,
@@ -85,63 +77,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let source = fs::read_to_string(&output)?;
     fs::remove_file(&output)?;
 
-    // Invoke Lexer
-    let tokens = match lex(&source) {
-        Ok(tokens) => tokens,
-        Err(e) => return Err(format!("Lexical error: {}", e).into()),
+    let Some(ir) = frontend::compile(source, stage)? else {
+        return Ok(()); // Stage ended early
     };
-    if stage == Stage::Lex {
-        dbg!(tokens);
-        println!("Lexer OK!");
-        return Ok(());
-    }
 
-    // Invoke Parser
-    let mut ast = match parse(tokens) {
-        Ok(ast) => ast,
-        Err(e) => return Err(format!("Syntax error: {}", e).into()),
+    let Some(assembly_code) = backend::compile(ir, stage) else {
+        return Ok(()); // Stage ended early
     };
-    if stage == Stage::Parse {
-        dbg!(ast);
-        println!("Parser OK!");
-        return Ok(());
-    }
 
-    // Semantic Analysis
-    if let Err(e) = analyze(&mut ast) {
-        return Err(format!("Semantic error: {}", e).into());
-    }
-    if stage == Stage::Validate {
-        dbg!(ast);
-        println!("Validation OK!");
-        return Ok(());
-    }
-
-    // IR Generation
-    let ir = flatten(ast);
-    if stage == Stage::Ir {
-        dbg!(ir);
-        println!("IR OK!");
-        return Ok(());
-    }
-
-    // Code Generation
-    let assembly = generate(ir);
-    if stage == Stage::Codegen {
-        dbg!(assembly);
-        println!("Code Generation OK!");
-        return Ok(());
-    }
-
-    // Code Emission
-    let assembly_code = emit(assembly);
-    if stage == Stage::Emit {
-        println!("{}", assembly_code);
-        println!("Code Emission OK!");
-        return Ok(());
-    }
-
-    // Write the code
+    // Write the assembly code
     let asm_file = input.with_extension("s");
     let exec_file = input.with_extension("");
     fs::write(&asm_file, assembly_code)?;
@@ -158,7 +102,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if !assembler_status.success() {
         return Err("clang failed to assemble and link".into());
     }
-    fs::remove_file(&asm_file)?;
 
+    fs::remove_file(&asm_file)?;
     return Ok(());
 }
