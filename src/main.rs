@@ -13,7 +13,7 @@ use backend::emit::emit;
 use frontend::irgen::flatten;
 use frontend::lexer::lex;
 use frontend::parser::parse;
-use frontend::resolve::resolve;
+use frontend::semantic::analyze;
 
 #[derive(Debug, PartialEq)]
 enum Stage {
@@ -108,7 +108,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Semantic Analysis
-    if let Err(e) = resolve(&mut ast) {
+    if let Err(e) = analyze(&mut ast) {
         return Err(format!("Semantic error: {}", e).into());
     }
     if stage == Stage::Validate {

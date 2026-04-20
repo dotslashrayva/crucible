@@ -108,7 +108,7 @@ The compiler is split into a target-independent *Frontend* and a target-dependen
 |-------|--------|---------------|
 | Lexing | `frontend/lexer.rs` | Source -> `Vec<Token>` |
 | Parsing | `frontend/parser.rs` | Tokens -> AST |
-| Semantic Analysis | `frontend/resolve.rs` | AST -> AST (validated, variables renamed, labels resolved, loops labeled) |
+| Semantic Analysis | `frontend/semantic/` | AST -> AST (validated, variables renamed, labels resolved, loops labeled) |
 | IR Generation | `frontend/irgen.rs` | AST -> Three-Address Code |
 | Code Generation | `backend/codegen.rs` | TAC -> x86-64 instructions |
 | Emission | `backend/emit.rs` | Instructions -> Assembly text |
@@ -122,7 +122,11 @@ src/
 │   ├── lexer.rs          # Regex-based tokenizer
 │   ├── ast.rs            # AST node types
 │   ├── parser.rs         # Recursive descent + precedence climbing
-│   ├── resolve.rs        # Variable resolution + loop labeling (semantic analysis)
+│   ├── semantic.rs       # Orchestrates the semantic analysis passes
+│   ├── semantic/         # Semantic analysis passes
+│   │   ├── variable.rs   # Variable resolution and lvalue checks
+│   │   ├── gotos.rs      # Label collection and goto resolution
+│   │   └── loops.rs      # Loop labeling for break/continue
 │   ├── ir.rs             # Three-address code definitions
 │   └── irgen.rs          # AST -> TAC lowering
 ├── backend/              # Target-dependent x86-64 generation
@@ -136,26 +140,31 @@ src/
 
 ### Parsing Strategy
 
-The parser uses recursive descent for statements and declarations, and switches to **precedence climbing** for expressions. A single `parse_exp(min_prec)` function handles all 17 precedence levels and both associativity directions through a tight loop. No grammar duplication, no per-level functions, and trivially extensible when new operators are added. Assignment and conditional expressions (`? :`) are treated as right-associative special cases within the precedence climber — assignment produces an `Assignment` node, and the ternary produces a `Conditional` node, while all other operators flow through the standard binary path. Compound assignments (`+=`, `-=`, etc.) are **desugared in the parser** into plain assignments (`a += b` becomes `a = a + b`), keeping the AST, IR, and codegen unchanged.
+The parser uses recursive descent for statements and declarations, and switches to **precedence climbing** for expressions. A single `parse_exp(min_prec)` function handles all 17 precedence levels and both associativity directions through a tight loop. No grammar duplication, no per-level functions, and trivially extensible when new operators are added. Assignment and conditional expressions (`? :`) are treated as right-associative special cases within the precedence climber: assignment produces an `Assignment` node, and the ternary produces a `Conditional` node, while all other operators flow through the standard binary path. Compound assignments (`+=`, `-=`, etc.) are **desugared in the parser** into plain assignments (`a += b` becomes `a = a + b`), keeping the AST, IR, and codegen unchanged.
 
-Labeled statements (`label: <statement>`) are disambiguated from expression statements by peeking one token ahead when an identifier is encountered, if the next token is `:`, the parser commits to a labeled statement; otherwise it falls through to expression parsing. `goto` is parsed as a simple keyword-identifier-semicolon production.
+Labeled statements (`label: <statement>`) are disambiguated from expression statements by peeking one token ahead when an identifier is encountered. If the next token is `:`, the parser commits to a labeled statement; otherwise it falls through to expression parsing. `goto` is parsed as a simple keyword-identifier-semicolon production.
 
 ### Semantic Analysis
 
-Semantic analysis runs as a **single resolver pass** over the AST, handling three concerns in one traversal (with a label collection pre-pass).
+Semantic analysis is structured as **three independent passes** over the AST, each owning a single concern. The passes run in a fixed order from `semantic::analyze()`, and each one walks the AST independently, with no shared mutable state and no interleaved responsibilities. Adding a future pass (e.g. a typechecker, or `switch`/`case` validation) is a new file plus one line in the orchestrator.
 
-**Pass 1: Variable Resolution.** Every variable is renamed with a unique identifier (`x` -> `x.0`, `y` -> `y.1`), eliminating name collisions between user-defined variables and compiler-generated temporaries in all subsequent stages.
+**Pass 1: Variable Resolution (`variable.rs`).** Every variable is renamed with a unique identifier (`x` -> `x.0`, `y` -> `y.1`), eliminating name collisions between user-defined variables and compiler-generated temporaries in all subsequent stages.
 
-The resolver enforces three invariants:
+The pass enforces three invariants:
 1. **No duplicate declarations**: a variable name may only be declared once within a single scope
 2. **No undeclared references**: every variable use must have a corresponding prior declaration
-3. **Valid lvalues**: the left side of an assignment must be an addressable location
+3. **Valid lvalues**: the left side of an assignment, compound assignment, or `++`/`--` must be an addressable location
 
-Block scoping is implemented by maintaining a variable map that tracks both the unique name and whether each entry was declared in the current block. When entering a compound statement or `for` loop header, the map is copied with all "declared in current block" flags reset to false. This allows inner scopes to shadow outer variables without triggering the duplicate declaration check, while still catching true duplicates within the same scope. On exit, the original map is restored so inner declarations don't leak into the outer scope. The `for` loop header gets its own scope so a declaration like `for (int i = 0; ...)` is visible throughout the loop but not after it.
+Block scoping is implemented with a stack of hash maps. Each entry on the stack is one active scope, with the innermost scope on top. Entering a compound statement or `for` loop header pushes a fresh empty scope; exiting pops it. Declarations insert into the top scope only, so the duplicate check looks only at the top. Variable lookups walk the stack from top to bottom, so inner scopes naturally shadow outer ones. The `for` loop header gets its own scope so a declaration like `for (int i = 0; ...)` is visible throughout the loop header and body but not after it. Lvalue checking is centralized in a single helper so that adding new lvalue forms (pointer dereference, struct field access) in the future is a one-line change.
 
-**Pass 2: Label Resolution.** All user-defined labels are collected in a pre-pass over the function body before the main resolution walk. Labels have **function scope** in C, a `goto` can jump forward to a label that hasn't been seen yet, so the resolver must know every label in the function before it can validate `goto` targets. The pre-pass walks the AST to find every `Labeled` statement, checks for duplicates, and assigns each label a unique name (e.g., `start` -> `label.start.0`). During the main resolve pass, each `goto` is validated against the collected label map and rewritten to use the unique name.
+**Pass 2: Label Resolution (`gotos.rs`).** Labels in C have **function scope**, meaning a `goto` can jump forward to a label that hasn't been seen yet in source order. This forces a two-phase structure:
 
-**Pass 3: Loop Labeling.** Every loop statement (`while`, `do`/`while`, `for`) is assigned a unique ID, and every `break` and `continue` statement is annotated with the ID of its enclosing loop. The current loop label is threaded through the AST traversal; when it's absent and a `break` or `continue` is encountered, the compiler emits an error. This decouples loop validation from both parsing and IR generation, the parser doesn't need to track loop nesting, and the IR generator can unconditionally emit jumps to deterministic label names derived from these IDs.
+- **Phase A (collect)**: read-only walk over the function body. Every `Labeled` statement is recorded in a function-wide map with a unique name (e.g., `start` -> `label.start.0`). Duplicate labels are rejected here.
+- **Phase B (rewrite)**: mutating walk. Every `Labeled` statement and every `goto` has its name rewritten using the map. Forward gotos resolve correctly because the map is already complete. A `goto` to a name not in the map is reported as an undefined label.
+
+The read-only / read-write split is enforced by Rust's borrow checker: phase A takes `&Block`, phase B takes `&mut Block`, making the two phases visibly distinct at the call site.
+
+**Pass 3: Loop Labeling (`loops.rs`).** Every loop statement (`while`, `do`/`while`, `for`) is assigned a unique ID (e.g., `loop.0`, `loop.1`), and every `break` and `continue` inside the loop is annotated with the ID of its enclosing loop. The current loop label is threaded through the traversal as an `Option<&str>` parameter rather than stored in a stack, so the call stack itself serves as the loop-nesting stack. When `break` or `continue` is encountered with no current loop in scope, the compiler reports an error. This decouples loop validation from both parsing and IR generation: the parser doesn't need to track loop nesting, and the IR generator can unconditionally emit jumps to deterministic label names derived from these IDs.
 
 ### IR Lowering
 
@@ -163,7 +172,7 @@ The AST is flattened into **three-address code**, a linear sequence of instructi
 
 Compiler-generated temporaries (`tmp.0`, `tmp.1`, ...) are introduced to decompose complex expressions into discrete steps. The namespace separation between resolver-generated names (`x.0`) and IR temporaries (`tmp.0`) is maintained by convention, ensuring no collisions without requiring a global symbol table at this stage.
 
-Short-circuit evaluation for `&&` and `||` is lowered here through **control flow linearization**. Logical operators become sequences of conditional jumps, labels, and copy instructions rather than value-producing binary operations. This correctly models C's evaluation semantics where the right operand may never execute. The same mechanism handles `if`/`else` statements (conditional jumps around statement blocks) and ternary expressions (conditional jumps with both branches writing to a shared result variable), keeping the IR uniformly flat. Compound statements are transparent at this level — their block items are simply flattened inline, since scoping has already been resolved by the semantic analysis pass.
+Short-circuit evaluation for `&&` and `||` is lowered here through **control flow linearization**. Logical operators become sequences of conditional jumps, labels, and copy instructions rather than value-producing binary operations. This correctly models C's evaluation semantics where the right operand may never execute. The same mechanism handles `if`/`else` statements (conditional jumps around statement blocks) and ternary expressions (conditional jumps with both branches writing to a shared result variable), keeping the IR uniformly flat. Compound statements are transparent at this level: their block items are simply flattened inline, since scoping has already been resolved by the semantic analysis pass.
 
 **Loop lowering** follows the same linearization pattern. Each loop construct is translated into a canonical sequence of labels and jumps:
 - **`while`**: condition check at the top, conditional exit, body, unconditional jump back
