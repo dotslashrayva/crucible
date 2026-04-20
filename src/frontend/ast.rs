@@ -31,15 +31,36 @@ pub enum Statement {
     Return(Expr),
     Expression(Expr),
 
-    If(Expr, Box<Statement>, Option<Box<Statement>>),
+    If {
+        condition: Expr,
+        then_branch: Box<Statement>,
+        else_branch: Option<Box<Statement>>,
+    },
+
     Compound(Block),
 
     Break(String),
     Continue(String),
 
-    While(Expr, Box<Statement>, String),
-    DoWhile(Box<Statement>, Expr, String),
-    For(ForInit, Option<Expr>, Option<Expr>, Box<Statement>, String),
+    While {
+        condition: Expr,
+        body: Box<Statement>,
+        label: String,
+    },
+
+    DoWhile {
+        body: Box<Statement>,
+        condition: Expr,
+        label: String,
+    },
+
+    For {
+        init: ForInit,
+        condition: Option<Expr>,
+        post: Option<Expr>,
+        body: Box<Statement>,
+        label: String,
+    },
 
     Goto(String),
     Labeled(String, Box<Statement>),
@@ -59,14 +80,32 @@ pub enum Expr {
     Variable(String),
 
     Unary(UnaryOperator, Box<Expr>),
-    Binary(BinaryOperator, Box<Expr>, Box<Expr>),
+
+    Binary {
+        op: BinaryOperator,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
 
     PostfixIncrement(Box<Expr>),
     PostfixDecrement(Box<Expr>),
 
-    Assignment(Box<Expr>, Box<Expr>),
-    Conditional(Box<Expr>, Box<Expr>, Box<Expr>),
-    CompoundAssignment(Box<Expr>, BinaryOperator, Box<Expr>),
+    Assignment {
+        target: Box<Expr>,
+        value: Box<Expr>,
+    },
+
+    Conditional {
+        condition: Box<Expr>,
+        then_branch: Box<Expr>,
+        else_branch: Box<Expr>,
+    },
+
+    CompoundAssignment {
+        target: Box<Expr>,
+        op: BinaryOperator,
+        value: Box<Expr>,
+    },
 }
 
 #[derive(Debug, Clone)]

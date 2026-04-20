@@ -38,7 +38,11 @@ fn collect_stmt(
             collect_stmt(inner, labels, counter)
         }
 
-        Statement::If(_, then_s, else_s) => {
+        Statement::If {
+            then_branch: then_s,
+            else_branch: else_s,
+            ..
+        } => {
             collect_stmt(then_s, labels, counter)?;
 
             if let Some(e) = else_s {
@@ -49,9 +53,9 @@ fn collect_stmt(
         }
 
         Statement::Compound(block) => collect_block(block, labels, counter),
-        Statement::While(_, body, _) => collect_stmt(body, labels, counter),
-        Statement::DoWhile(body, _, _) => collect_stmt(body, labels, counter),
-        Statement::For(_, _, _, body, _) => collect_stmt(body, labels, counter),
+        Statement::While { body, .. } => collect_stmt(body, labels, counter),
+        Statement::DoWhile { body, .. } => collect_stmt(body, labels, counter),
+        Statement::For { body, .. } => collect_stmt(body, labels, counter),
 
         Statement::Return(_)
         | Statement::Expression(_)
@@ -88,7 +92,11 @@ fn rewrite_stmt(stmt: &mut Statement, labels: &LabelMap) -> Result<(), String> {
             None => Err(format!("undefined label: '{}'", target)),
         },
 
-        Statement::If(_, then_s, else_s) => {
+        Statement::If {
+            then_branch: then_s,
+            else_branch: else_s,
+            ..
+        } => {
             rewrite_stmt(then_s, labels)?;
 
             if let Some(e) = else_s {
@@ -99,9 +107,9 @@ fn rewrite_stmt(stmt: &mut Statement, labels: &LabelMap) -> Result<(), String> {
         }
 
         Statement::Compound(block) => rewrite_block(block, labels),
-        Statement::While(_, body, _) => rewrite_stmt(body, labels),
-        Statement::DoWhile(body, _, _) => rewrite_stmt(body, labels),
-        Statement::For(_, _, _, body, _) => rewrite_stmt(body, labels),
+        Statement::While { body, .. } => rewrite_stmt(body, labels),
+        Statement::DoWhile { body, .. } => rewrite_stmt(body, labels),
+        Statement::For { body, .. } => rewrite_stmt(body, labels),
 
         Statement::Return(_)
         | Statement::Expression(_)

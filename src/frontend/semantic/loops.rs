@@ -49,28 +49,32 @@ fn label_stmt(
             None => Err("'continue' statement outside of loop".to_string()),
         },
 
-        Statement::While(_, body, label) => {
+        Statement::While { body, label, .. } => {
             let new_label = fresh_label(counter);
             label_stmt(body, counter, Some(&new_label))?;
             *label = new_label;
             return Ok(());
         }
 
-        Statement::DoWhile(body, _, label) => {
+        Statement::DoWhile { body, label, .. } => {
             let new_label = fresh_label(counter);
             label_stmt(body, counter, Some(&new_label))?;
             *label = new_label;
             return Ok(());
         }
 
-        Statement::For(_, _, _, body, label) => {
+        Statement::For { body, label, .. } => {
             let new_label = fresh_label(counter);
             label_stmt(body, counter, Some(&new_label))?;
             *label = new_label;
             return Ok(());
         }
 
-        Statement::If(_, then_s, else_s) => {
+        Statement::If {
+            then_branch: then_s,
+            else_branch: else_s,
+            ..
+        } => {
             label_stmt(then_s, counter, current_loop)?;
 
             if let Some(e) = else_s {

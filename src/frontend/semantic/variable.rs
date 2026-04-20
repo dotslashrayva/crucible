@@ -86,7 +86,11 @@ fn resolve_stmt(stmt: &mut Statement, scopes: &mut ScopeStack) -> Result<(), Str
 
         Statement::Break(_) | Statement::Continue(_) | Statement::Goto(_) => Ok(()),
 
-        Statement::If(cond, then_s, else_s) => {
+        Statement::If {
+            condition: cond,
+            then_branch: then_s,
+            else_branch: else_s,
+        } => {
             resolve_expr(cond, scopes)?;
             resolve_stmt(then_s, scopes)?;
 
@@ -104,17 +108,31 @@ fn resolve_stmt(stmt: &mut Statement, scopes: &mut ScopeStack) -> Result<(), Str
             return result;
         }
 
-        Statement::While(cond, body, _) => {
+        Statement::While {
+            condition: cond,
+            body,
+            ..
+        } => {
             resolve_expr(cond, scopes)?;
             resolve_stmt(body, scopes)
         }
 
-        Statement::DoWhile(body, cond, _) => {
+        Statement::DoWhile {
+            body,
+            condition: cond,
+            ..
+        } => {
             resolve_stmt(body, scopes)?;
             resolve_expr(cond, scopes)
         }
 
-        Statement::For(init, cond, post, body, _) => {
+        Statement::For {
+            init,
+            condition: cond,
+            post,
+            body,
+            ..
+        } => {
             scopes.enter();
             resolve_for_init(init, scopes)?;
 
@@ -157,16 +175,16 @@ fn resolve_expr(expr: &mut Expr, scopes: &mut ScopeStack) -> Result<(), String> 
             None => Err(format!("undeclared variable: '{}'", name)),
         },
 
-        Expr::Assignment(left, right) => {
-            require_lvalue(left.as_ref(), "assignment")?;
-            resolve_expr(left, scopes)?;
-            resolve_expr(right, scopes)
+        Expr::Assignment { target, value } => {
+            require_lvalue(target.as_ref(), "assignment")?;
+            resolve_expr(target, scopes)?;
+            resolve_expr(value, scopes)
         }
 
-        Expr::CompoundAssignment(left, _op, right) => {
-            require_lvalue(left.as_ref(), "compound assignment")?;
-            resolve_expr(left, scopes)?;
-            resolve_expr(right, scopes)
+        Expr::CompoundAssignment { target, value, .. } => {
+            require_lvalue(target.as_ref(), "compound assignment")?;
+            resolve_expr(target, scopes)?;
+            resolve_expr(value, scopes)
         }
 
         Expr::Unary(op, inner) => {
@@ -185,15 +203,19 @@ fn resolve_expr(expr: &mut Expr, scopes: &mut ScopeStack) -> Result<(), String> 
             resolve_expr(inner, scopes)
         }
 
-        Expr::Binary(_, l, r) => {
-            resolve_expr(l, scopes)?;
-            resolve_expr(r, scopes)
+        Expr::Binary { left, right, .. } => {
+            resolve_expr(left, scopes)?;
+            resolve_expr(right, scopes)
         }
 
-        Expr::Conditional(c, t, e) => {
-            resolve_expr(c, scopes)?;
-            resolve_expr(t, scopes)?;
-            resolve_expr(e, scopes)
+        Expr::Conditional {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            resolve_expr(condition, scopes)?;
+            resolve_expr(then_branch, scopes)?;
+            resolve_expr(else_branch, scopes)
         }
     }
 }

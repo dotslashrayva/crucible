@@ -244,7 +244,11 @@ impl Parser {
             None
         };
 
-        Ok(Statement::If(condition, Box::new(then_branch), else_branch))
+        Ok(Statement::If {
+            condition,
+            then_branch: Box::new(then_branch),
+            else_branch,
+        })
     }
 
     // "{" <block_item>* "}"
@@ -275,7 +279,11 @@ impl Parser {
         self.expect(Token::CloseParen, "Expected ')'")?;
         let body = self.parse_statement()?;
 
-        Ok(Statement::While(condition, Box::new(body), String::new()))
+        Ok(Statement::While {
+            condition,
+            body: Box::new(body),
+            label: String::new(),
+        })
     }
 
     // "do" <statement> "while" "(" <exp> ")" ";"
@@ -289,7 +297,11 @@ impl Parser {
         self.expect(Token::CloseParen, "Expected ')'")?;
         self.expect(Token::Semicolon, "Expected ';'")?;
 
-        Ok(Statement::DoWhile(Box::new(body), condition, String::new()))
+        Ok(Statement::DoWhile {
+            body: Box::new(body),
+            condition,
+            label: String::new(),
+        })
     }
 
     // "for" "(" <for-init> [ <exp> ] ";" [ <exp> ] ")" <statement>
@@ -316,13 +328,13 @@ impl Parser {
         self.expect(Token::CloseParen, "Expected ')'")?;
 
         let body = self.parse_statement()?;
-        Ok(Statement::For(
+        Ok(Statement::For {
             init,
             condition,
             post,
-            Box::new(body),
-            String::new(),
-        ))
+            body: Box::new(body),
+            label: String::new(),
+        })
     }
 
     // Parse the initialize in the for loop
@@ -374,7 +386,11 @@ impl Parser {
             if token == &Token::Equal {
                 self.advance();
                 let right = self.parse_exp(token_prec)?;
-                left = Expr::Assignment(Box::new(left), Box::new(right));
+
+                left = Expr::Assignment {
+                    target: Box::new(left),
+                    value: Box::new(right),
+                };
             }
             // Ternary
             else if token == &Token::Question {
@@ -382,19 +398,31 @@ impl Parser {
                 let middle = self.parse_exp(0)?;
                 self.expect(Token::Colon, "Expected ':'")?;
                 let right = self.parse_exp(token_prec)?;
-                left = Expr::Conditional(Box::new(left), Box::new(middle), Box::new(right));
+                left = Expr::Conditional {
+                    condition: Box::new(left),
+                    then_branch: Box::new(middle),
+                    else_branch: Box::new(right),
+                };
             }
             // Compound Assignment
             else if let Some(binary_op) = Self::compound_to_binop(token) {
                 self.advance();
                 let right = self.parse_exp(token_prec)?;
-                left = Expr::CompoundAssignment(Box::new(left), binary_op, Box::new(right));
+                left = Expr::CompoundAssignment {
+                    target: Box::new(left),
+                    op: binary_op,
+                    value: Box::new(right),
+                };
             }
             // Binary Expression as left-associative
             else {
                 let operator = self.token_to_binary_op()?;
                 let right = self.parse_exp(token_prec + 1)?;
-                left = Expr::Binary(operator, Box::new(left), Box::new(right));
+                left = Expr::Binary {
+                    op: operator,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                };
             }
         }
 

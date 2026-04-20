@@ -142,10 +142,14 @@ fn flatten_statement(statement: ast::Statement, ctx: &mut Context) {
             ctx.append(Instruction::Return(result_val));
         }
 
-        ast::Statement::If(condition, then_stmt, else_stmt) => {
+        ast::Statement::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
             let cond_val = flatten_expr(condition, ctx);
 
-            match else_stmt {
+            match else_branch {
                 None => {
                     let end_label = ctx.alloc_label("if_end");
 
@@ -154,10 +158,11 @@ fn flatten_statement(statement: ast::Statement, ctx: &mut Context) {
                         target: end_label.clone(),
                     });
 
-                    flatten_statement(*then_stmt, ctx);
+                    flatten_statement(*then_branch, ctx);
 
                     ctx.append(Instruction::Label(end_label));
                 }
+
                 Some(else_stmt) => {
                     let else_label = ctx.alloc_label("if_else");
                     let end_label = ctx.alloc_label("if_end");
@@ -167,7 +172,7 @@ fn flatten_statement(statement: ast::Statement, ctx: &mut Context) {
                         target: else_label.clone(),
                     });
 
-                    flatten_statement(*then_stmt, ctx);
+                    flatten_statement(*then_branch, ctx);
 
                     ctx.append(Instruction::Jump {
                         target: end_label.clone(),
@@ -205,7 +210,11 @@ fn flatten_statement(statement: ast::Statement, ctx: &mut Context) {
         }
 
         // While loop:
-        ast::Statement::While(condition, body, label) => {
+        ast::Statement::While {
+            condition,
+            body,
+            label,
+        } => {
             let cont_label = Context::continue_label(&label);
             let brk_label = Context::break_label(&label);
 
@@ -225,7 +234,11 @@ fn flatten_statement(statement: ast::Statement, ctx: &mut Context) {
         }
 
         // Do-While loop:
-        ast::Statement::DoWhile(body, condition, label) => {
+        ast::Statement::DoWhile {
+            body,
+            condition,
+            label,
+        } => {
             let start_label = ctx.alloc_label("do_start");
             let cont_label = Context::continue_label(&label);
             let brk_label = Context::break_label(&label);
@@ -246,7 +259,13 @@ fn flatten_statement(statement: ast::Statement, ctx: &mut Context) {
         }
 
         // For loop:
-        ast::Statement::For(init, condition, post, body, label) => {
+        ast::Statement::For {
+            init,
+            condition,
+            post,
+            body,
+            label,
+        } => {
             let start_label = ctx.alloc_label("for_start");
             let cont_label = Context::continue_label(&label);
             let brk_label = Context::break_label(&label);
@@ -401,7 +420,7 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> Value {
             return Value::Variable(dst);
         }
 
-        ast::Expr::Binary(op, left, right) => {
+        ast::Expr::Binary { op, left, right } => {
             match op {
                 ast::BinaryOperator::LogicalAnd => {
                     // For: left && right
@@ -526,7 +545,11 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> Value {
 
         ast::Expr::Variable(name) => Value::Variable(name),
 
-        ast::Expr::Conditional(condition, then_expr, else_expr) => {
+        ast::Expr::Conditional {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
             let result = ctx.alloc_var();
             let else_label = ctx.alloc_label("cond_else");
             let end_label = ctx.alloc_label("cond_end");
@@ -538,7 +561,7 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> Value {
                 target: else_label.clone(),
             });
 
-            let v1 = flatten_expr(*then_expr, ctx);
+            let v1 = flatten_expr(*then_branch, ctx);
             ctx.append(Instruction::Copy {
                 src: v1,
                 dst: result.clone(),
@@ -549,7 +572,7 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> Value {
 
             ctx.append(Instruction::Label(else_label));
 
-            let v2 = flatten_expr(*else_expr, ctx);
+            let v2 = flatten_expr(*else_branch, ctx);
             ctx.append(Instruction::Copy {
                 src: v2,
                 dst: result.clone(),
@@ -560,13 +583,13 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> Value {
             return Value::Variable(result);
         }
 
-        ast::Expr::Assignment(left, right) => {
-            let dst = match *left {
+        ast::Expr::Assignment { target, value } => {
+            let dst = match *target {
                 ast::Expr::Variable(name) => name,
                 _ => unreachable!(),
             };
 
-            let val = flatten_expr(*right, ctx);
+            let val = flatten_expr(*value, ctx);
 
             ctx.append(Instruction::Copy {
                 src: val,
@@ -576,13 +599,13 @@ fn flatten_expr(expr: ast::Expr, ctx: &mut Context) -> Value {
             return Value::Variable(dst);
         }
 
-        ast::Expr::CompoundAssignment(left, op, right) => {
-            let var = match *left {
+        ast::Expr::CompoundAssignment { target, op, value } => {
+            let var = match *target {
                 ast::Expr::Variable(name) => name,
                 _ => unreachable!(),
             };
 
-            let rhs_val = flatten_expr(*right, ctx);
+            let rhs_val = flatten_expr(*value, ctx);
 
             let tmp = ctx.alloc_var();
 
