@@ -1,6 +1,3 @@
-// Assembly program data structures
-// These represent the assembly code we'll generate from the AST
-
 #[derive(Debug)]
 pub struct Program {
     pub function: Function,

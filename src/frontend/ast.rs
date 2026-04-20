@@ -1,6 +1,3 @@
-// AST (Abstract Syntax Tree) structures
-// These represent the structure of our program after parsing
-
 #[derive(Debug)]
 pub struct Program {
     pub function: Function,

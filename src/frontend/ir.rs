@@ -1,5 +1,4 @@
 // Three-Address Code Intermediate Representation
-// This IR is closer to assembly but still architecture-independent
 
 #[derive(Debug)]
 pub struct Program {

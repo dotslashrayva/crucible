@@ -23,8 +23,8 @@ fn map_src_operand(src: &ir::Value) -> asm::Operand {
 
 fn map_unary(op: &ir::UnaryOperator) -> asm::UnaryOperator {
     match op {
-        ir::UnaryOperator::Complement => asm::UnaryOperator::Not, // NOT
-        ir::UnaryOperator::Negate => asm::UnaryOperator::Neg,     // NEG
+        ir::UnaryOperator::Complement => asm::UnaryOperator::Not,
+        ir::UnaryOperator::Negate => asm::UnaryOperator::Neg,
         ir::UnaryOperator::Not => unreachable!(),
     }
 }

@@ -78,7 +78,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         .arg(&output)
         .status()
         .expect("failed to run clang");
-
     if !prep_status.success() {
         return Err("clang failed to preprocess".into());
     }
@@ -142,11 +141,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    // Save the Code and Invoke Assembler
+    // Write the code
     let asm_file = input.with_extension("s");
     let exec_file = input.with_extension("");
     fs::write(&asm_file, assembly_code)?;
 
+    // Invoke Assembler
     let assembler_status = Command::new("clang")
         .arg("-target")
         .arg("x86_64-apple-darwin")
@@ -155,11 +155,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         .arg(&exec_file)
         .status()
         .expect("failed to run clang");
-
     if !assembler_status.success() {
         return Err("clang failed to assemble and link".into());
     }
-
     fs::remove_file(&asm_file)?;
 
     return Ok(());
