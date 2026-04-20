@@ -140,9 +140,11 @@ src/
 
 ### Parsing Strategy
 
-The parser uses recursive descent for statements and declarations, and switches to **precedence climbing** for expressions. A single `parse_exp(min_prec)` function handles all 17 precedence levels and both associativity directions through a tight loop. No grammar duplication, no per-level functions, and trivially extensible when new operators are added. Assignment and conditional expressions (`? :`) are treated as right-associative special cases within the precedence climber: assignment produces an `Assignment` node, and the ternary produces a `Conditional` node, while all other operators flow through the standard binary path. Compound assignments (`+=`, `-=`, etc.) are **desugared in the parser** into plain assignments (`a += b` becomes `a = a + b`), keeping the AST, IR, and codegen unchanged.
+The parser uses recursive descent for statements and declarations, and switches to **precedence climbing** for expressions. A single `parse_exp(min_prec)` function handles all 17 precedence levels and both associativity directions through a tight loop. No grammar duplication, no per-level functions, and trivially extensible when new operators are added. Assignment and conditional expressions (`? :`) are treated as right-associative special cases within the precedence climber: assignment produces an `Assignment` node, and the ternary produces a `Conditional` node, while all other operators flow through the standard binary path.
 
 Labeled statements (`label: <statement>`) are disambiguated from expression statements by peeking one token ahead when an identifier is encountered. If the next token is `:`, the parser commits to a labeled statement; otherwise it falls through to expression parsing. `goto` is parsed as a simple keyword-identifier-semicolon production.
+
+Compound assignments (`+=`, `-=`, etc.) get their own AST node (`CompoundAssignment`) rather than being desugared in the parser. Lowering to a binary operation plus a copy happens during IR generation. This keeps the AST faithful to the source and, more importantly, evaluates the target expression exactly once, which will matter once lvalues include side-effecting forms like pointer dereferences.
 
 ### Semantic Analysis
 
